@@ -83,7 +83,7 @@ All screens share the top row: thermometer °C, droplet %RH, and HH:MM on the ri
 
 | Button | Short press | Long press |
 |---|---|---|
-| **PWR** | **Refresh now**: reconnect, fetch, full refresh (also clears ghosting) | Power off (keep the hardware behaviour) |
+| **PWR** | **Next bird** from memory (no Wi-Fi, fast) | **Refresh now** (hold 1.5 s): reconnect, fetch, full refresh |
 | **BOOT** | **Switch screen A ⇄ D**: no Wi-Fi, redraws in about 2 s | (free for now) |
 
 The chosen screen stays until the button is pressed again, and the 5-minute refresh updates whichever screen is showing.

@@ -35,6 +35,12 @@ static_assert(PIN_EPD_SCK >= 0 && PIN_EPD_MOSI >= 0 && PIN_EPD_CS >= 0 && PIN_EP
               "Pins unconfirmed: fill include/board_pins.h from Waveshare's demo (PLAN.md section 2)");
 #endif
 
+#ifdef DEBUG_LOG
+#define LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define LOG(...) ((void)0)
+#endif
+
 static const char* kDataUrl = "https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json";
 static const char* kTz = "IST-2IDT,M3.4.4/26,M10.5.0";  // Asia/Jerusalem
 constexpr uint32_t kRefreshMs = 5UL * 60 * 1000;
@@ -187,6 +193,37 @@ static bool syncNtp() {
   return false;
 }
 
+// ArduinoJson takes any "reader" with read() and readBytes(). A plain TLS stream returns -1
+// whenever the next packet has not arrived yet, which the parser takes as the end of the
+// file (IncompleteInput, seen after 3 entries). This one waits for data until the server
+// closes the connection, or nothing arrives for 10 s.
+struct PatientReader {
+  WiFiClient* c;
+  size_t readBytes(char* buf, size_t n) {
+    size_t got = 0;
+    uint32_t last = millis();
+    while (got < n) {
+      int avail = c->available();
+      if (avail > 0) {
+        int r = c->read((uint8_t*)buf + got, (size_t)avail < n - got ? (size_t)avail : n - got);
+        if (r > 0) {
+          got += r;
+          last = millis();
+          continue;
+        }
+      }
+      if (!c->connected() && c->available() == 0) break;
+      if (millis() - last > 10000) break;
+      delay(1);
+    }
+    return got;
+  }
+  int read() {
+    char b;
+    return readBytes(&b, 1) == 1 ? (uint8_t)b : -1;
+  }
+};
+
 enum class Fetch { Failed, Same, Updated };
 
 // GET data.json (~250 KB), keeping only what the screens need, and build the latest 10.
@@ -198,11 +235,12 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
   HTTPClient http;
   http.useHTTP10(true);  // no chunked encoding: the JSON parser reads the stream directly
   http.setTimeout(15000);
-  if (!http.begin(client, kDataUrl)) return Fetch::Failed;
+  if (!http.begin(client, kDataUrl)) { LOG("fetch: http.begin failed\n"); return Fetch::Failed; }
   const char* keys[] = {"ETag"};
   http.collectHeaders(keys, 1);
   if (st.etag[0]) http.addHeader("If-None-Match", st.etag);
   int code = http.GET();
+  LOG("fetch: HTTP %d (%s), heap %u\n", code, code < 0 ? HTTPClient::errorToString(code).c_str() : "", (unsigned)ESP.getFreeHeap());
   if (code == 304) {
     http.end();
     return Fetch::Same;
@@ -220,15 +258,17 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
   filter[0]["week_count"] = true;
   filter[0]["badges"][0]["en"] = true;
   JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+  PatientReader reader{http.getStreamPtr()};
+  DeserializationError err = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
   http.end();
+  LOG("fetch: parse %s, %u entries\n", err.c_str(), (unsigned)doc.as<JsonArray>().size());
   if (err) return Fetch::Failed;
 
   n = 0;
   for (JsonObject o : doc.as<JsonArray>()) {
     logic::Bird b = {};
     time_t seen;
-    if (!logic::parseLocal(o["last_seen"] | "", &seen)) continue;
+    if (!logic::parseLocal(o["last_seen"] | "", &seen)) { LOG("fetch: bad last_seen '%s'\n", (const char*)(o["last_seen"] | "")); continue; }
     logic::copyStr(b.sci, sizeof b.sci, o["sci"] | "");
     logic::copyStr(b.name, sizeof b.name, o["name"] | "");
     b.seen = (uint32_t)seen;
@@ -240,14 +280,18 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
     }
     logic::insertTop(out, n, b);
   }
+  LOG("fetch: %d birds kept\n", n);
   if (n == 0) return Fetch::Failed;
   logic::copyStr(st.etag, sizeof st.etag, etag.c_str());
   return Fetch::Updated;
 }
 
+static void nextBird() { st.idx = st.n ? (st.idx + 1) % st.n : 0; }
+
 // Fetch and rotate. `advance` = step A to the next bird (timer wakes only).
 static void refreshData(bool advance) {
   bool wifi = wifiUp();
+  LOG("wifi: %s\n", wifi ? "connected" : "FAILED");
   if (wifi) {
     if (!env.clockOk || st.lastNtp == 0 || (uint32_t)time(nullptr) - st.lastNtp > kNtpEverySec) {
       if (syncNtp()) env.clockOk = true;
@@ -332,6 +376,10 @@ static void holdPinsForSleep() {
 }
 
 static void goToSleep() {
+#ifdef DEBUG_LOG
+  LOG("done: n=%d idx=%d screen=%d (debug build stays awake)\n", st.n, st.idx, st.screen);
+  return;
+#endif
   waitReleased(2000);
   uint64_t mask = 0;
   for (int pin : {PIN_BTN_BOOT, PIN_BTN_PWR}) {
@@ -401,6 +449,11 @@ static void demoData() {
 // -------------------------------------------------------------------- main
 
 void setup() {
+#ifdef DEBUG_LOG
+  Serial.begin(115200);
+  delay(4000);  // time for the PC to attach to the USB serial port
+  LOG("debug build, reset reason %d\n", (int)esp_reset_reason());
+#endif
   const bool coldStart = st.magic != kRtcMagic;
   if (coldStart) {
     memset(&st, 0, sizeof st);
@@ -426,15 +479,22 @@ void setup() {
   return;
 #endif
 
+  // PWR: short = next bird (from memory, no Wi-Fi: fast), held 1.5 s = refresh now (Wi-Fi).
   // BOOT held 1.5 s = "refresh now" when PWR is not a readable GPIO.
-  bool refreshNow = btn == Btn::Pwr;
-  if (btn == Btn::Boot && PIN_BTN_PWR < 0) {
+  bool refreshNow = false, nextBirdNow = false;
+  if (btn == Btn::Pwr) {
+    for (uint32_t t0 = millis(); pressed(PIN_BTN_PWR) && !refreshNow; delay(10))
+      if (millis() - t0 >= kHoldRefreshMs) refreshNow = true;
+    nextBirdNow = !refreshNow;
+  } else if (btn == Btn::Boot && PIN_BTN_PWR < 0) {
     for (uint32_t t0 = millis(); pressed(PIN_BTN_BOOT) && !refreshNow; delay(10))
       if (millis() - t0 >= kHoldRefreshMs) refreshNow = true;
   }
 
   if (btn == Btn::Boot && !refreshNow) {
     st.screen ^= 1;
+  } else if (nextBirdNow) {
+    nextBird();
   } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
     refreshData(true);
   } else {
@@ -453,8 +513,10 @@ void setup() {
         if (millis() - t0 > kHoldRefreshMs) break;
       }
       bool held = millis() - t0 > kHoldRefreshMs;
-      if (pwr || (boot && PIN_BTN_PWR < 0 && held)) {
+      if ((pwr && held) || (boot && PIN_BTN_PWR < 0 && held)) {
         refreshData(false);
+      } else if (pwr) {
+        nextBird();
       } else {
         st.screen ^= 1;
       }
@@ -468,11 +530,24 @@ void setup() {
 
 void loop() {
 #ifdef DEMO_MODE
+  // Buttons, for bring-up: BOOT = switch A/D (as in the real firmware), PWR = next bird.
+  if (pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) {
+    delay(30);  // debounce
+    const bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
+    if (!boot && !pwr) return;
+    Serial.printf("demo: button %s\n", boot ? "BOOT" : "PWR");
+    if (boot) st.screen ^= 1;
+    else st.idx = (st.idx + 1) % st.n;
+    render();
+    waitReleased(3000);
+    return;
+  }
   if (!Serial.available()) return;
   switch (Serial.read()) {
     case 'a': st.screen = 0; break;
     case 'd': st.screen = 1; break;
     case 'n': st.idx = (st.idx + 1) % st.n; break;
+    case 'p': Serial.printf("demo: BOOT(gpio%d)=%d PWR(gpio%d)=%d\n", PIN_BTN_BOOT, digitalRead(PIN_BTN_BOOT), PIN_BTN_PWR, digitalRead(PIN_BTN_PWR)); return;
     default: return;
   }
   render();

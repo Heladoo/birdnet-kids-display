@@ -1,39 +1,29 @@
-// Pins of the Waveshare ESP32-S3-ePaper-1.54. NOT CONFIRMED: the plan was written
-// without the board. Fill the -1 values below from Waveshare's demo code (phase 0,
-// PLAN.md section 2); the build stops with a static_assert until the required pins
-// (EPD SPI, CS, DC, RST, BUSY, I2C) are set. Pins marked optional may stay -1.
+// Pins of the Waveshare ESP32-S3-ePaper-1.54. Taken from Waveshare's demo code
+// (github.com/waveshareteam/ESP32-S3-ePaper-1.54, 02_Example/Arduino/*/user_config.h) and
+// cross-checked against the factory firmware's boot log on the real board (I2C 47/48,
+// SHTC3 answered with ID 0887). The panel uses SSD1681 commands -> GxEPD2_154_D67.
+// Not yet checked on the panel itself: power polarity under GxEPD2, and the PWR button.
 #pragma once
 
-#ifdef PINS_PLACEHOLDER
-// Dummy numbers so the code can be compile-checked. Wrong for the real board.
 #define PIN_EPD_SCK 12
-#define PIN_EPD_MOSI 11
-#define PIN_EPD_CS 10
-#define PIN_EPD_DC 9
-#define PIN_EPD_RST 46
+#define PIN_EPD_MOSI 13
+#define PIN_EPD_CS 11
+#define PIN_EPD_DC 10
+#define PIN_EPD_RST 9
 #define PIN_EPD_BUSY 8
-#define PIN_I2C_SDA 47
+#define PIN_I2C_SDA 47   // SHTC3 (0x70), PCF85063 (0x51), ES8311 (0x18)
 #define PIN_I2C_SCL 48
-#else
-#define PIN_EPD_SCK -1
-#define PIN_EPD_MOSI -1
-#define PIN_EPD_CS -1
-#define PIN_EPD_DC -1
-#define PIN_EPD_RST -1
-#define PIN_EPD_BUSY -1
-#define PIN_I2C_SDA -1   // SHTC3 (0x70) and PCF85063 (0x51)
-#define PIN_I2C_SCL -1
-#endif
 
 // Buttons. BOOT is GPIO0 on ESP32-S3 boards. Both are read as active low. Only RTC
 // pins (GPIO 0..21) can wake the chip from deep sleep.
 #define PIN_BTN_BOOT 0
-#define PIN_BTN_PWR -1   // optional: if PWR is not a readable GPIO, hold BOOT for 1.5 s to refresh
+#define PIN_BTN_PWR 18   // BAT_KEY: the PWR button, active low (Waveshare wakes from sleep on it)
 
 // Optional. -1 = this board has no such pin.
-#define PIN_PWR_LATCH -1     // power-latch: drive to PWR_LATCH_ON and hold, or the board switches off on battery
+#define PIN_PWR_LATCH 17     // power-latch: drive to PWR_LATCH_ON and hold, or the board switches off on battery
 #define PWR_LATCH_ON HIGH
-#define PIN_EPD_PWR -1       // panel supply switch
-#define EPD_PWR_ON HIGH
-#define PIN_AMP_EN -1        // speaker amplifier enable: kept OFF (speakers are not used for now)
-#define AMP_OFF LOW
+#define PIN_EPD_PWR 6        // panel supply switch (EPD3V3_EN), ACTIVE LOW in Waveshare's demo
+#define EPD_PWR_ON LOW
+#define PIN_AMP_EN 42        // audio supply (codec + amplifier), ACTIVE LOW in Waveshare's demo: HIGH = off.
+                             // PA_CTRL (GPIO46, a strapping pin) is left alone.
+#define AMP_OFF HIGH

@@ -2,6 +2,13 @@
 
 Usage: python3 build_pack.py [--data ../../data.json] [--expert ../../expert-data.json]
        [--photos DIR] [--no-download] [--out ../out] [--firmware ../firmware]
+       [--no-cutout] [--recut] [--no-assets]
+
+The bird is cut out of its photo (U2-Net via `pip install "rembg[cpu]"`, local,
+~1 s per photo; the model, 176 MB, is downloaded on first use) and shown large on
+a clean white background. Cut-outs are cached in cache/cut/; --recut redoes them
+(after changing a photo), --no-cutout uses the old crop + background fade
+(also the fallback when the cut looks wrong). --no-assets leaves ui_assets.h alone.
 
 For every species in data.json and expert-data.json it writes one card,
 firmware/data/cards/<sci_slug>.bin (this folder is what `pio run -t uploadfs`
@@ -36,7 +43,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps
 
-from epaper_image import to_1bit, to_gray
+from epaper_image import cut_out, to_1bit, to_gray, to_gray_cutout
 from mockups import ICONS, W, font, text
 
 HERE = Path(__file__).resolve().parent
@@ -128,9 +135,29 @@ def find_photo(sci, image_url, photos_dir, download, cache):
 
 # -------------------------------------------------------------------- cards
 
-def build_card(sp, photo_img, focus):
+def get_cutout(photo_img, s, cache, recut, src=None):
+    """The bird cut out of its photo (cached as cache/cut/<slug>.png), or None.
+    The cache is redone when the photo file (`src`) is newer than the cut-out."""
+    path = cache / "cut" / f"{s}.png"
+    if src and Path(src).exists() and path.exists() and Path(src).stat().st_mtime > path.stat().st_mtime:
+        recut = True
+    if path.exists() and not recut:
+        return Image.open(path).convert("RGBA")
+    rgba = cut_out(photo_img)
+    if rgba is None:
+        path.with_suffix(".failed").parent.mkdir(parents=True, exist_ok=True)
+        path.with_suffix(".failed").write_bytes(b"")
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rgba.save(path)
+    return rgba
+
+
+def build_card(sp, photo_img, focus, cutout=None):
     if photo_img is None:
         photo = Image.new("1", PHOTO, 1)
+    elif cutout is not None:
+        photo = to_1bit(to_gray_cutout(cutout, PHOTO))
     else:
         photo = to_1bit(to_gray(photo_img, PHOTO, focus))
     he_big = clamp_w(fit_strip(sp["he"], 22, True, HE_BIG_H, rtl=True))
@@ -273,15 +300,22 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     crops = json.load(open(ROOT / "crops.json")) if (ROOT / "crops.json").exists() else {}
 
-    (fw / "src").mkdir(parents=True, exist_ok=True)
-    (fw / "src" / "ui_assets.h").write_text(ui_assets_header(), encoding="utf-8")
+    if "--no-assets" not in sys.argv:
+        (fw / "src").mkdir(parents=True, exist_ok=True)
+        (fw / "src" / "ui_assets.h").write_text(ui_assets_header(), encoding="utf-8")
+    use_cut = "--no-cutout" not in sys.argv
+    recut = "--recut" in sys.argv
+    cache = ROOT / "cache"
 
     species = collect_species(data, expert)
     sheet, report, total = [], [], 0
     for i, sp in enumerate(species, 1):
         img, src = find_photo(sp["sci"], sp["image"], photos_dir, download, ROOT / "cache")
         focus = tuple(crops.get(sp["sci"], (0.5, 0.45)))
-        blob, panel = build_card(sp, img, focus)
+        cutout = None
+        if img is not None and use_cut and (recut or not (cache / "cut" / f"{slug(sp['sci'])}.failed").exists()):
+            cutout = get_cutout(img, slug(sp["sci"]), cache, recut, src)
+        blob, panel = build_card(sp, img, focus, cutout)
         (cards / f"{slug(sp['sci'])}.bin").write_bytes(blob)
         total += len(blob)
         ok = img is not None
