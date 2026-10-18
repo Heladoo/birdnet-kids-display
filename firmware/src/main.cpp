@@ -23,6 +23,7 @@
 #include <sys/time.h>
 
 #include "board_pins.h"
+#include "soc/usb_serial_jtag_reg.h"
 #include "logic.h"
 #include "screens.h"
 #ifndef DEMO_MODE
@@ -375,12 +376,59 @@ static void holdPinsForSleep() {
   gpio_deep_sleep_hold_en();
 }
 
+// A PC on the USB port sends a start-of-frame packet every millisecond; a charger does not.
+// Deep sleep switches the USB port off (Windows sees an unplug), so with a PC attached the
+// device stays awake instead: buttons answer at once and nothing disconnects.
+static bool usbHostPresent() {
+  uint32_t a = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) & 0x7FF;
+  delay(4);
+  uint32_t b = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) & 0x7FF;
+  return a != b;
+}
+
+// Returns when the PC is unplugged (then the caller goes to deep sleep as usual).
+static void stayAwakeOnUsb() {
+  uint32_t lastData = millis(), lastCheck = millis();
+  int absent = 0;
+  for (;;) {
+    bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
+    if (boot || pwr) {
+      uint32_t t0 = millis();
+      while ((pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) && millis() - t0 <= kHoldRefreshMs) delay(10);
+      bool held = millis() - t0 > kHoldRefreshMs;
+      env.sensorOk = readSht(env.temp, env.hum);
+      if (pwr && held) {
+        refreshData(false);
+        lastData = millis();
+      } else if (pwr) {
+        nextBird();
+      } else {
+        st.screen ^= 1;
+      }
+      render();
+      waitReleased(3000);
+    } else if (millis() - lastData >= kRefreshMs) {
+      env.sensorOk = readSht(env.temp, env.hum);
+      refreshData(true);
+      lastData = millis();
+      render();
+    }
+    if (millis() - lastCheck >= 2000) {
+      lastCheck = millis();
+      absent = usbHostPresent() ? 0 : absent + 1;
+      if (absent >= 2) return;
+    }
+    delay(20);
+  }
+}
+
 static void goToSleep() {
 #ifdef DEBUG_LOG
   LOG("done: n=%d idx=%d screen=%d (debug build stays awake)\n", st.n, st.idx, st.screen);
   return;
 #endif
   waitReleased(2000);
+  if (usbHostPresent()) stayAwakeOnUsb();
   uint64_t mask = 0;
   for (int pin : {PIN_BTN_BOOT, PIN_BTN_PWR}) {
     if (pin < 0) continue;
