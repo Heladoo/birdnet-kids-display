@@ -21,7 +21,7 @@ The tools in `tools/` (Python + Pillow, run on the PC):
 
 ## 2. Hardware (to confirm on the device)
 
-Taken from Waveshare's product listings. The plan was written in a cloud session without the board, so **pin numbers must be read from Waveshare's demo code** in phase 0:
+Taken from Waveshare's product listings. The plan was written in a cloud session without the board, so **pin numbers must be read from Waveshare's demo code** in phase 0 and entered in `firmware/include/board_pins.h`:
 
 - ESP32-S3 (PICO-1-N8R8: 8 MB flash, 8 MB PSRAM; some listings say N4R2), Wi-Fi and BLE 5.
 - 1.54" e-paper, 200×200, black and white (listed as "2 grey levels"), SPI. About 2 s for a full refresh and 0.3 s for a partial one.
@@ -101,6 +101,8 @@ Wake sources while asleep: the timer (5 min) plus BOOT (ext0 on GPIO0). PWR's GP
 - Sensor accuracy: the SHTC3 sits next to the ESP. Read it straight after waking, and add a calibration offset if it reads warm.
 
 ## 8. Phases
+
+*Status: phase 1's builder (`tools/build_pack.py`) and phase 2's firmware (`firmware/`) are written but untested on hardware; phase 0 is open. See `CLAUDE.md`.*
 
 0. **Bring-up (local, on the PC):** flash Waveshare's demo, note the pins, and check the display, SHTC3, RTC and both buttons. Stretch: try 4-grey mode.
 1. **Pack builder:** `build_pack.py` → contact sheet → LittleFS image. Fix bad crops with `crops.json` and overrides.

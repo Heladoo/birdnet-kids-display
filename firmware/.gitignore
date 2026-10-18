@@ -1,0 +1,5 @@
+.pio/
+include/secrets.h
+# The pack is generated: tools/build_pack.py (needs the photos, so not committed)
+data/
+test/out/

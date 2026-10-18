@@ -1,0 +1,6 @@
+# 8 MB flash. No OTA: firmware is flashed over USB. The pack needs ~0.7 MB; 4 MB leaves room.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x5000
+phy_init, data, phy,     0xe000,   0x1000
+app0,     app,  factory, 0x10000,  0x300000
+spiffs,   data, spiffs,  0x310000, 0x400000
