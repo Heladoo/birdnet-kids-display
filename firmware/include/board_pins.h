@@ -14,6 +14,8 @@
 #define PIN_I2C_SDA 47   // SHTC3 (0x70), PCF85063 (0x51), ES8311 (0x18)
 #define PIN_I2C_SCL 48
 
+#define PIN_BAT_ADC 4    // battery voltage through a 1:2 divider (Waveshare ADC example: mV x 2)
+
 // Buttons. BOOT is GPIO0 on ESP32-S3 boards. Both are read as active low. Only RTC
 // pins (GPIO 0..21) can wake the chip from deep sleep.
 #define PIN_BTN_BOOT 0

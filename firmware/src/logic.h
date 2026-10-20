@@ -84,6 +84,18 @@ inline int nextIndex(const Bird* oldTop, int oldN, const Bird* newTop, int newN,
   return advance ? (oldIdx + 1) % newN : oldIdx;
 }
 
+// Rough LiPo state of charge from the resting voltage (piecewise linear). -1 = no battery
+// (nothing connected or a nonsense reading).
+inline int lipoPercent(float v) {
+  if (v < 2.5f || v > 4.6f) return -1;
+  static const float kV[] = {3.30f, 3.50f, 3.65f, 3.75f, 3.85f, 4.00f, 4.15f};
+  static const int kP[] = {0, 10, 30, 50, 70, 85, 100};
+  if (v <= kV[0]) return 0;
+  for (int i = 1; i < 7; i++)
+    if (v <= kV[i]) return kP[i - 1] + (int)((v - kV[i - 1]) / (kV[i] - kV[i - 1]) * (kP[i] - kP[i - 1]) + 0.5f);
+  return 100;
+}
+
 enum class Heard { None, Once, Twice, Many };
 inline Heard heardKind(unsigned week) {
   return week == 0 ? Heard::None : week == 1 ? Heard::Once : week == 2 ? Heard::Twice : Heard::Many;

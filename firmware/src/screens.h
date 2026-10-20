@@ -48,6 +48,7 @@ struct Env {
   float temp = 0, hum = 0;
   bool clockOk = false;
   int hh = 0, mm = 0;
+  int batPct = -1;  // -1 = no battery: no icon
 };
 
 // ---------------------------------------------------------------- text
@@ -107,6 +108,14 @@ void topBar(G& g, const Env& e) {
   g.drawBitmap(52, 4, ui::ICON_DROP, 12, 12, kWhite);
   if (e.sensorOk) snprintf(buf, sizeof buf, "%d%%", (int)lroundf(e.hum)); else strcpy(buf, "--%");
   drawText(g, ui::BAR, buf, 65, 10, kWhite);
+  if (e.batPct >= 0) {  // battery: outline, nub and a fill of 16 px at 100%
+    const int x = 124, y = 5;
+    g.drawRect(x, y, 20, 10, kWhite);
+    g.fillRect(x + 20, y + 3, 2, 4, kWhite);
+    int fill = (e.batPct * 16 + 50) / 100;
+    if (fill < 1 && e.batPct > 0) fill = 1;
+    if (fill > 0) g.fillRect(x + 2, y + 2, fill, 6, kWhite);
+  }
   if (e.clockOk) snprintf(buf, sizeof buf, "%02d:%02d", e.hh, e.mm); else strcpy(buf, "--:--");
   drawText(g, ui::CLOCK, buf, W - 4 - textWidth(ui::CLOCK, buf), 10, kWhite);
 }
@@ -169,22 +178,46 @@ void drawBird(G& g, const Card* card, const logic::Bird& b, time_t now, const En
 
 // -------------------------------------------------------------- screen D
 
+// Screen D shows only the latest kListRows birds, in large type (the Hebrew name is the
+// big strip from the card, the time uses the CLOCK digits). A name too wide for the row
+// falls back to the small strip. The bird on screen A is highlighted when it is in the list.
+constexpr int kListRows = 5;
+constexpr int kListY = 42, kListRowH = 31;
+
 // `load(sci, card)` fills `card` for a species, valid until the next call; false = not in the pack.
 template <class G, class Loader>
 void drawList(G& g, const logic::Bird* top, int n, int sel, const Env& e, Loader load) {
   g.fillScreen(kWhite);
   topBar(g, e);
   drawStrip(g, ui::TITLE_LIST, (W - ui::TITLE_LIST.w) / 2, 23, kBlack);
-  int y = 41;
-  for (int k = 0; k < n; k++, y += 16) {
+  const int rows = n < kListRows ? n : kListRows;
+  // The window follows the selection: beyond the first page the list scrolls so the
+  // selected bird is the last row.
+  const int start = sel >= rows ? sel - rows + 1 : 0;
+  for (int r = 0; r < rows; r++) {
+    const int k = start + r;
+    const int y = kListY + r * kListRowH;
     uint16_t ink = kBlack;
     if (k == sel) {
-      g.fillRect(0, y, W, 16, kBlack);
+      g.fillRect(0, y, W, kListRowH - 1, kBlack);
       ink = kWhite;
     }
+    struct tm lt;
+    time_t seen = (time_t)top[k].seen;
+    localtime_r(&seen, &lt);
+    char t[8];
+    snprintf(t, sizeof t, "%02d:%02d", lt.tm_hour, lt.tm_min);
+    const int tw = textWidth(ui::CLOCK, t);
+    drawText(g, ui::CLOCK, t, 4, y + (kListRowH - 1) / 2, ink);
+
     Card c;
     if (load(top[k].sci, c)) {
-      g.drawBitmap(W - 4 - c.heSmallW, y, c.heSmall, c.heSmallW, kHeSmallH, ink);
+      const int room = W - 4 - (4 + tw + 6);  // between the time and the right edge
+      if (c.heBigW <= room) {
+        g.drawBitmap(W - 4 - c.heBigW, y + (kListRowH - 1 - kHeBigH) / 2, c.heBig, c.heBigW, kHeBigH, ink);
+      } else {
+        g.drawBitmap(W - 4 - c.heSmallW, y + (kListRowH - 1 - kHeSmallH) / 2, c.heSmall, c.heSmallW, kHeSmallH, ink);
+      }
     }
 #ifdef ARDUINO
     else {
@@ -193,16 +226,10 @@ void drawList(G& g, const logic::Bird* top, int n, int sel, const Env& e, Loader
       int16_t x1, y1;
       uint16_t w, h;
       g.getTextBounds(top[k].name, 0, 0, &x1, &y1, &w, &h);
-      g.setCursor(W - 4 - (int)w - x1, y + 13);
+      g.setCursor(W - 4 - (int)w - x1, y + 20);
       g.print(top[k].name);
     }
 #endif
-    struct tm lt;
-    time_t seen = (time_t)top[k].seen;
-    localtime_r(&seen, &lt);
-    char t[8];
-    snprintf(t, sizeof t, "%02d:%02d", lt.tm_hour, lt.tm_min);
-    drawText(g, ui::LIST, t, 4, y + 8, ink);
   }
 }
 

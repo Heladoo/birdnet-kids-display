@@ -108,6 +108,18 @@ static bool readSht(float& t, float& h) {
   return ok;
 }
 
+static void readBattery() {
+  analogSetPinAttenuation(PIN_BAT_ADC, ADC_11db);
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) {
+    mv += analogReadMilliVolts(PIN_BAT_ADC);
+    delay(2);
+  }
+  float v = mv / 8.0f * 2.0f / 1000.0f;  // 1:2 divider
+  env.batPct = logic::lipoPercent(v);
+  LOG("battery: %.2f V -> %d %%\n", v, env.batPct);
+}
+
 // ------------------------------------------------------------------- clock
 
 static uint8_t bcd(uint8_t v) { return (v >> 4) * 10 + (v & 0x0F); }
@@ -397,6 +409,7 @@ static void stayAwakeOnUsb() {
       while ((pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) && millis() - t0 <= kHoldRefreshMs) delay(10);
       bool held = millis() - t0 > kHoldRefreshMs;
       env.sensorOk = readSht(env.temp, env.hum);
+      readBattery();
       if (pwr && held) {
         refreshData(false);
         lastData = millis();
@@ -409,6 +422,7 @@ static void stayAwakeOnUsb() {
       waitReleased(3000);
     } else if (millis() - lastData >= kRefreshMs) {
       env.sensorOk = readSht(env.temp, env.hum);
+      readBattery();
       refreshData(true);
       lastData = millis();
       render();
@@ -514,6 +528,7 @@ void setup() {
   LittleFS.begin(false);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   env.sensorOk = readSht(env.temp, env.hum);  // before Wi-Fi warms the board
+  readBattery();
   env.clockOk = loadClockFromRtc();
   SPI.begin(PIN_EPD_SCK, -1, PIN_EPD_MOSI, PIN_EPD_CS);
   display.epd2.selectSPI(SPI, SPISettings(4000000, MSBFIRST, SPI_MODE0));
