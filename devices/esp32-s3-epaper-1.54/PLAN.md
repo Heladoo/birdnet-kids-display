@@ -109,7 +109,7 @@ Wake sources while asleep: the timer (5 min) plus BOOT (ext0 on GPIO0). PWR's GP
 2. **Firmware v1:** screens A and D, top bar, 5-minute cycle, both buttons, deep sleep.
 3. **Extras:** a "new bird!" screen from `news.json` and `device.json` from the export. Sound stays out until decided otherwise.
 
-## 9. Sound POC (stage 0 done)
+## 9. Sound POC (stages 0 and 1 done)
 
 Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without keeping audio in RAM or flash.
 
@@ -133,5 +133,12 @@ Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without 
 - Amplifier GPIO46 is active high and the codec supply GPIO42 active low, as in Waveshare's demo; supply and amplifier are switched on only for the beep and are off again afterwards.
 - Volume (codec DAC register, dB): -30 dB is too quiet to judge, -18 dB is clearly audible, -6 dB is loud. A default of about -15 dB looks right; revisit with real bird clips (they are loudness-normalised already).
 - A minimal driver (`es8311_min.h`, ported from Espressif's esp_codec_dev, Apache-2.0) is enough; no need to vendor the whole library. 16, 22.05, 32, 44.1 and 48 kHz are in its table; only 16 kHz has been heard so far.
-- Next: stage 1, stream one MP3 from GitHub Pages and play it.
+
+**Stage 1 result (2026-10-21): passed.** `pio run -e sound_stream -t upload` (source: `firmware/src/sound/stream_test.cpp`, `audio_out.h`; needs `include/secrets.h`). Plays `https://heladoo.github.io/Birdnet_kids/audio/<slug>.mp3` over HTTPS: GitHub Pages answers with a Content-Length (no chunking), the Helix decoder (`pschatzmann/arduino-libhelix` v0.9.4) turns 44.1 kHz stereo 128 kbit/s MP3 into PCM, the I2S DMA plays it. Volume -15 dB was right.
+- **First try stuttered.** With only the 5.7 KB TCP buffer ahead of the decoder, Wi-Fi bursts (gaps up to 200 ms at -70 dBm) ran the audio dry: 88 stalls, 6.06 s of sound took 6.7 s.
+- **Fix: jitter buffer in PSRAM.** A 160 KB ring (PSRAM is otherwise unused) is filled between decode steps; playback starts once 32 KB (about 2 s of audio) are in. Result: first sound 0.8 s after the request, the ring never ran dry (lowest fill 33 KB), 6.06 s of sound in 6.16 s, no audible gaps.
+- **Memory:** internal heap fell from 296 KB free to a 188 KB minimum (TLS handshake plus decoder, about 110 KB) and is back to 253 KB after; the clip itself lives only in PSRAM, so the clip size does not matter for internal RAM.
+- **Timing:** joining Wi-Fi took 6.6-8.3 s at -68..-71 dBm, so a button press that has to connect first waits that long before the first sound; staying connected, or connecting while the screen redraws, would hide it.
+- Licences: the Helix wrapper is GPL-3 (the repo's firmware has to be GPL-3-compatible anyway because of GxEPD2); the decoder itself is RealNetworks RPSL.
+- Next: stage 2, wire it into the UI (BOOT held 1.5 s plays the bird on screen), with the audio code moved into the normal firmware.
 

@@ -7,7 +7,7 @@ An e-paper desk display for BirdNET Kids: a Waveshare **ESP32-S3-ePaper-1.54** (
 - **Screens:** A (the bird: photo, Hebrew + English name, "נשמע XX פעמים השבוע", badges, "לפני X דק׳") and D (the latest 10, with the bird on A highlighted). Top row on both: °C, %RH, HH:MM.
 - **Buttons:** BOOT short = switch screen A ⇄ D. PWR short = next bird (no Wi-Fi); PWR held 1.5 s = refresh over Wi-Fi. Any press restarts the 20-minute rotation timer.
 - **Pictures:** the real bird photo, manipulated by code (crop, grayscale, contrast, background fade, Atkinson dither) by `tools/epaper_image.py`. Never redraw birds. All species go on the ESP; no local server.
-- **Speakers:** the normal firmware keeps the codec and amplifier off. Sound is a separate proof of concept (`firmware/src/sound/`, env `sound_beep`; plan in `PLAN.md` section 9, stage 0 done).
+- **Speakers:** the normal firmware keeps the codec and amplifier off. Sound is a separate proof of concept (`firmware/src/sound/`, envs `sound_beep` and `sound_stream`; plan and results in `PLAN.md` section 9, stages 0 and 1 done; stage 2 = wire it into the UI).
 - **Data source:** `https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json`, read by the ESP over Wi-Fi.
 
 ## Where things are
