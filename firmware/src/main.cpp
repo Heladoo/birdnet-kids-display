@@ -44,7 +44,9 @@ static_assert(PIN_EPD_SCK >= 0 && PIN_EPD_MOSI >= 0 && PIN_EPD_CS >= 0 && PIN_EP
 
 static const char* kDataUrl = "https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json";
 static const char* kTz = "IST-2IDT,M3.4.4/26,M10.5.0";  // Asia/Jerusalem
-constexpr uint32_t kRefreshMs = 5UL * 60 * 1000;
+constexpr uint32_t kRefreshMs = 5UL * 60 * 1000;   // wake: clock, sensor, battery, data
+constexpr uint32_t kRotateMs = 20UL * 60 * 1000;   // the bird on screen A changes this often
+constexpr uint8_t kRotateWakes = kRotateMs / kRefreshMs;
 constexpr uint32_t kNtpEverySec = 24UL * 3600;
 constexpr uint32_t kGraceMs = 4000;      // stay awake after a button wake, for the next press
 constexpr uint32_t kHoldRefreshMs = 1500;
@@ -61,6 +63,7 @@ struct RtcState {
   uint8_t screen;  // 0 = A (the bird), 1 = D (the latest 10)
   int8_t idx;      // which of the latest 10 screen A shows
   uint8_t n;
+  uint8_t sinceChange;  // timer wakes since the bird last changed (rotation or a button)
   uint32_t lastNtp;
   char etag[72];
   logic::Bird top[logic::kTop];
@@ -400,7 +403,7 @@ static bool usbHostPresent() {
 
 // Returns when the PC is unplugged (then the caller goes to deep sleep as usual).
 static void stayAwakeOnUsb() {
-  uint32_t lastData = millis(), lastCheck = millis();
+  uint32_t lastData = millis(), lastCheck = millis(), lastChange = millis();
   int absent = 0;
   for (;;) {
     bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
@@ -408,6 +411,7 @@ static void stayAwakeOnUsb() {
       uint32_t t0 = millis();
       while ((pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) && millis() - t0 <= kHoldRefreshMs) delay(10);
       bool held = millis() - t0 > kHoldRefreshMs;
+      lastChange = millis();  // a button press restarts the 20 min
       env.sensorOk = readSht(env.temp, env.hum);
       readBattery();
       if (pwr && held) {
@@ -423,7 +427,9 @@ static void stayAwakeOnUsb() {
     } else if (millis() - lastData >= kRefreshMs) {
       env.sensorOk = readSht(env.temp, env.hum);
       readBattery();
-      refreshData(true);
+      bool rotate = millis() - lastChange >= kRotateMs;
+      if (rotate) lastChange = millis();
+      refreshData(rotate);
       lastData = millis();
       render();
     }
@@ -523,6 +529,7 @@ void setup() {
   }
   initPins();
   Btn btn = wakeButton();
+  if (btn != Btn::None) st.sinceChange = 0;  // a person changed something: restart the 20 min
   auto cause = esp_sleep_get_wakeup_cause();
 
   LittleFS.begin(false);
@@ -559,7 +566,9 @@ void setup() {
   } else if (nextBirdNow) {
     nextBird();
   } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
-    refreshData(true);
+    bool rotate = ++st.sinceChange >= kRotateWakes;
+    if (rotate) st.sinceChange = 0;
+    refreshData(rotate);
   } else {
     refreshData(false);  // power-on, reset, or PWR
   }
@@ -570,6 +579,7 @@ void setup() {
     for (uint32_t last = millis(); millis() - last < kGraceMs; delay(10)) {
       bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
       if (!boot && !pwr) continue;
+      st.sinceChange = 0;
       uint32_t t0 = millis();
       while (pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) {
         delay(10);

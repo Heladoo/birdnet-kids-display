@@ -108,3 +108,23 @@ Wake sources while asleep: the timer (5 min) plus BOOT (ext0 on GPIO0). PWR's GP
 1. **Pack builder:** `build_pack.py` → contact sheet → LittleFS image. Fix bad crops with `crops.json` and overrides.
 2. **Firmware v1:** screens A and D, top bar, 5-minute cycle, both buttons, deep sleep.
 3. **Extras:** a "new bird!" screen from `news.json` and `device.json` from the export. Sound stays out until decided otherwise.
+
+## 9. Sound POC (plan, not started)
+
+Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without keeping audio in RAM or flash.
+
+**Facts**
+- Audio path: ES8311 codec (control over I²C 0x18 on SDA 47 / SCL 48), I²S on MCLK 14, BCLK 15, WS 38, DOUT 45, DIN 16 (from the factory firmware's log), audio supply GPIO42 (active low), amplifier enable GPIO46 (a strapping pin; check polarity), speaker already connected. Waveshare's `02_Example/Arduino/08_Audio_Test` is the reference for the init sequence.
+- Source clips: `audio/<slug>.mp3` in this repo (served by GitHub Pages): 411 files (up to 3 per species), MP3 44.1 kHz stereo 128 kbps, 4.5–6 s, 70–97 KB each, 36 MB in total (a few are empty files). One clip is about 97 KB; the whole set does not fit in flash.
+
+**Approach: stream, don't store.** Fetch the clip over HTTPS in small chunks, decode MP3 on the fly (Helix decoder), write to I²S. RAM needed: ~8–16 KB input buffer + ~25 KB decoder + ~5 KB output frame + I²S DMA, about 40 KB of the ~270 KB free internal RAM (PSRAM, 8 MB, is there for a bigger jitter buffer if needed). The file is never held whole.
+
+**Stages**
+0. Beep: bring up ES8311 + I²S + amplifier and play a generated 440 Hz tone (nothing stored). Proves wiring, volume, amp polarity, pop on start/stop.
+1. Stream one fixed clip from GitHub Pages and play it: proves Wi-Fi + decode + I²S together. Log the heap low-water mark and the time to first sound.
+2. Wire it to the UI: BOOT held 1.5 s plays the clip of the bird shown on A (a short press still switches the screen). Any press stops it. Audio supply and amplifier are switched on only while playing and are off again before sleep; the screen is not redrawn while sound plays.
+3. Polish: volume setting, which of the species' clips (up to 3), optional smaller files (22 kHz mono, ~30 KB each, re-encoded by the export), or an offline mode with all clips on the TF card.
+
+**Risks:** current spike of Wi-Fi plus speaker on weak USB power (brownout reset); ES8311 register init (port Waveshare's `esp_codec_dev` setup); amplifier hiss while idle (keep the supply off); the 4 s awake window and the stay-awake mode must not cut playback.
+
+**Done when:** the clip is recognisable, free heap stays above 100 KB during playback, nothing resets, and sound stops cleanly.
