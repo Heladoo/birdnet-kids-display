@@ -1,13 +1,13 @@
 # Home display
 
-An e-paper desk display for BirdNET Kids: a Waveshare **ESP32-S3-ePaper-1.54** (200×200, black/white) connected to this PC by USB. It shows one of the 10 most recently heard birds from the BirdNET Kids site's published `data.json` (github.com/Heladoo/Birdnet_kids, a separate repo), plus temperature, humidity and time, and refreshes every 5 minutes. The full plan is `PLAN.md`; read it first.
+An e-paper desk display for BirdNET Kids: a Waveshare **ESP32-S3-ePaper-1.54** (200×200, black/white) connected to this PC by USB. It shows one of the 10 most recently heard birds from the BirdNET Kids site's published `data.json` (github.com/Heladoo/Birdnet_kids, a separate repo), plus temperature, humidity and time, and wakes every 5 minutes (the bird changes every 20). The full plan is `PLAN.md`; read it first.
 
 ## Agreed with the owner
 
 - **Screens:** A (the bird: photo, Hebrew + English name, "נשמע XX פעמים השבוע", badges, "לפני X דק׳") and D (the latest 10, with the bird on A highlighted). Top row on both: °C, %RH, HH:MM.
 - **Buttons:** PWR short = refresh now (long = power off, as the hardware does). BOOT short = switch A ⇄ D.
 - **Pictures:** the real bird photo, manipulated by code (crop, grayscale, contrast, background fade, Atkinson dither) by `tools/epaper_image.py`. Never redraw birds. All species go on the ESP; no local server.
-- **Speakers are connected but must not be used for now.** Keep the codec and amplifier off.
+- **Speakers:** the normal firmware keeps the codec and amplifier off. Sound is a separate proof of concept (`firmware/src/sound/`, env `sound_beep`; plan in `PLAN.md` section 9, stage 0 done).
 - **Data source:** `https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json`, read by the ESP over Wi-Fi.
 
 ## Where things are
@@ -21,7 +21,7 @@ An e-paper desk display for BirdNET Kids: a Waveshare **ESP32-S3-ePaper-1.54** (
 
 ## Status and next steps
 
-**Working on the real board (2026-10-18):** the firmware compiles and runs, the pack is on the board, and both buttons, the Wi-Fi fetch, the top bar and the 5-minute deep-sleep cycle work. Board: ESP32-S3-PICO-1 (8 MB flash, 8 MB PSRAM), SSD1681 panel (`GxEPD2_154_D67`). The 5-minute timer rotation has not been watched over a long run yet.
+**Working on the real board (2026-10-18):** the firmware compiles and runs, the pack is on the board, and both buttons, the Wi-Fi fetch, the top bar and the 5-minute deep-sleep cycle work (the bird changes every 20 minutes; with a PC on USB it stays awake instead of sleeping). Board: ESP32-S3-PICO-1 (8 MB flash, 8 MB PSRAM), SSD1681 panel (`GxEPD2_154_D67`). The 5-minute timer rotation has not been watched over a long run yet.
 
 Done, with how:
 - **Phase 0:** pins taken from Waveshare's demo repo (`waveshareteam/ESP32-S3-ePaper-1.54`, `02_Example/Arduino/*/user_config.h`) and recorded in `firmware/include/board_pins.h`. EPD power (GPIO6) and the audio supply (GPIO42) are **active low**; GPIO17 is the battery power latch; GPIO18 is the PWR button.
@@ -38,7 +38,7 @@ Bug fixed: `deserializeJson` straight from the TLS stream stopped after 3 entrie
 
 Next:
 1. Weak photos: Accipiter nisus, Botaurus stellaris, Asio otus, Buteo buteo, Dendrocopos syriacus and others still look poor; find better Commons photos (put them in `overrides/`) and add the Bee-eater.
-2. Watch a long run: does the bird rotate every 5 minutes, does the clock stay right, how long does a battery last.
+2. Watch a long run: does the bird rotate every 20 minutes (and restart on a button press), does the clock stay right, how long does a battery last.
 3. Species heard after the pack was built show the English name only: rebuild and re-flash the pack now and then.
 4. Phase 3 extras: a "new bird!" screen, `device.json` from the export.
 
@@ -49,7 +49,7 @@ Next:
 - Always a full refresh (about 2 s), no partial refresh: a partial refresh after deep sleep depends on the controller's RAM state and is untested on this panel. Revisit after bring-up if the 5-minute cycle should be quieter.
 - Species heard after the pack was built show their English name in a built-in font (no pack card, no Hebrew); rebuild and re-flash the pack to include them.
 - The TLS certificate of `raw.githubusercontent.com` is not checked (`setInsecure`): the data is public and only drives the display.
-- The amplifier pin is driven off and held through sleep, and the codec is never started.
+- The amplifier pin is driven off and held through sleep, and the codec is never started (the sound POC is a separate env).
 
 ### Verified and unverified
 

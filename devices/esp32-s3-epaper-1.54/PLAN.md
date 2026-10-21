@@ -109,7 +109,7 @@ Wake sources while asleep: the timer (5 min) plus BOOT (ext0 on GPIO0). PWR's GP
 2. **Firmware v1:** screens A and D, top bar, 5-minute cycle, both buttons, deep sleep.
 3. **Extras:** a "new bird!" screen from `news.json` and `device.json` from the export. Sound stays out until decided otherwise.
 
-## 9. Sound POC (plan, not started)
+## 9. Sound POC (stage 0 done)
 
 Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without keeping audio in RAM or flash.
 
@@ -128,3 +128,10 @@ Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without 
 **Risks:** current spike of Wi-Fi plus speaker on weak USB power (brownout reset); ES8311 register init (port Waveshare's `esp_codec_dev` setup); amplifier hiss while idle (keep the supply off); the 4 s awake window and the stay-awake mode must not cut playback.
 
 **Done when:** the clip is recognisable, free heap stays above 100 KB during playback, nothing resets, and sound stops cleanly.
+
+**Stage 0 result (2026-10-21): passed.** `pio run -e sound_beep -t upload` (source: `firmware/src/sound/`, own env so the normal builds do not include it). The ES8311 answers on 0x18 (chip id 83 11), I²S + MCLK on GPIO14 run, the init sequence writes without errors, and a 440/880 Hz tone is heard clearly from the speaker. Findings:
+- Amplifier GPIO46 is active high and the codec supply GPIO42 active low, as in Waveshare's demo; supply and amplifier are switched on only for the beep and are off again afterwards.
+- Volume (codec DAC register, dB): -30 dB is too quiet to judge, -18 dB is clearly audible, -6 dB is loud. A default of about -15 dB looks right; revisit with real bird clips (they are loudness-normalised already).
+- A minimal driver (`es8311_min.h`, ported from Espressif's esp_codec_dev, Apache-2.0) is enough; no need to vendor the whole library. 16, 22.05, 32, 44.1 and 48 kHz are in its table; only 16 kHz has been heard so far.
+- Next: stage 1, stream one MP3 from GitHub Pages and play it.
+
