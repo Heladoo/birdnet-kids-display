@@ -1,6 +1,6 @@
 """Fixture for the PC test: every row of data.json plus what the C++ must produce.
 
-Usage: python3 fixture.py ../../../data.json out.tsv
+Usage: python3 fixture.py data.json out.tsv
 Lines:  NOW <iso>
         B <sci> <name> <last_seen> <week_count> <badge|badge|badge> <slug>   (data.json order)
         T <sci>      expected order of the latest 10 (newest first, ties in file order)

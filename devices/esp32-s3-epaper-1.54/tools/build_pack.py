@@ -1,6 +1,6 @@
 """Build the bird-picture pack for the e-paper display.
 
-Usage: python3 build_pack.py [--data ../../data.json] [--expert ../../expert-data.json]
+Usage: python3 build_pack.py [--data data.json] [--expert expert-data.json]
        [--photos DIR] [--no-download] [--out ../out] [--firmware ../firmware]
        [--no-cutout] [--recut] [--no-assets]
 
@@ -9,6 +9,9 @@ The bird is cut out of its photo (U2-Net via `pip install "rembg[cpu]"`, local,
 a clean white background. Cut-outs are cached in cache/cut/; --recut redoes them
 (after changing a photo), --no-cutout uses the old crop + background fade
 (also the fallback when the cut looks wrong). --no-assets leaves ui_assets.h alone.
+
+--data / --expert default to the published site files (SITE below), downloaded fresh
+into cache/ on every run (an older copy in cache/ is used if the download fails).
 
 For every species in data.json and expert-data.json it writes one card,
 firmware/data/cards/<sci_slug>.bin (this folder is what `pio run -t uploadfs`
@@ -51,11 +54,28 @@ ROOT = HERE.parent
 
 PHOTO = (200, 108)
 HE_BIG_H, EN_H, HE_SMALL_H = 24, 14, 16
-UA = "BirdnetKidsHomeDisplay/1.0 (https://github.com/Heladoo/Birdnet_kids)"
+UA = "BirdnetKidsDisplay/1.0 (https://github.com/Heladoo/birdnet-kids-display)"
+SITE = "https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/"
 
 
 def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
+def site_json(name, explicit, cache):
+    """Path of a site file: the one given on the command line, or the published copy."""
+    if explicit:
+        return Path(explicit)
+    path = cache / name
+    try:
+        data = urllib.request.urlopen(urllib.request.Request(SITE + name, headers={"User-Agent": UA}), timeout=30).read()
+        cache.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    except Exception as e:
+        if not path.exists():
+            raise SystemExit(f"cannot download {SITE + name}: {e}")
+        print(f"download of {name} failed ({e}); using the copy in cache/", file=sys.stderr)
+    return path
 
 
 def slug(sci):
@@ -289,8 +309,8 @@ static inline const uint8_t* iconForBadge(const char* en) {
 # --------------------------------------------------------------------- main
 
 def main():
-    data = Path(arg("--data", ROOT.parent / "data.json"))
-    expert = Path(arg("--expert", ROOT.parent / "expert-data.json"))
+    data = site_json("data.json", arg("--data"), ROOT / "cache")
+    expert = site_json("expert-data.json", arg("--expert"), ROOT / "cache")
     photos_dir = arg("--photos")
     download = "--no-download" not in sys.argv
     out = Path(arg("--out", ROOT / "out"))

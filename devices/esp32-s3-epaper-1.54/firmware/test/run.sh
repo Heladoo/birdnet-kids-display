@@ -6,7 +6,10 @@ set -e
 cd "$(dirname "$0")"
 OUT=${1:-out}
 mkdir -p "$OUT"
-python3 fixture.py ../../../data.json "$OUT/fixture.tsv"
+# data.json: the published site file, or pass your own as the second argument
+DATA=${2:-"$OUT/data.json"}
+[ -n "$2" ] || curl -sfL https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json -o "$DATA"
+python3 fixture.py "$DATA" "$OUT/fixture.tsv"
 g++ -std=c++17 -Wall -Wextra -O1 -o "$OUT/host_test" host_test.cpp
 "$OUT/host_test" "$OUT/fixture.tsv" ../data/cards "$OUT"
 python3 pbm2png.py "$OUT"
