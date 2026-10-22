@@ -371,13 +371,17 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
     b.seen = (uint32_t)seen;
     b.week = o["week_count"] | 0;
     int k = 0;
+    bool low = false;
     for (JsonObject bd : o["badges"].as<JsonArray>()) {
-      if (k >= 3) break;
-      logic::copyStr(b.badge[k++], sizeof b.badge[0], bd["en"] | "");
+      const char* en = bd["en"] | "";
+      if (logic::isLowConfidenceBadge(en)) low = true;  // check every badge, not only the 3 that fit
+      if (k < 3) logic::copyStr(b.badge[k++], sizeof b.badge[0], en);
     }
+    if (low) continue;  // only birds the site is confident about are shown (its "Confident" filter)
     logic::insertTop(out, n, b);
   }
   LOG("fetch: %d birds kept\n", n);
+  for (int i = 0; i < n; i++) LOG("  top %d: %s (%s)\n", i, out[i].sci, out[i].name);
   if (n == 0) return Fetch::Failed;
   logic::copyStr(st.etag, sizeof st.etag, etag.c_str());
   return Fetch::Updated;

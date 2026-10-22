@@ -84,6 +84,10 @@ inline int nextIndex(const Bird* oldTop, int oldN, const Bird* newTop, int newN,
   return advance ? (oldIdx + 1) % newN : oldIdx;
 }
 
+// The site marks species it is unsure about with the badge "Low confidence" (icon ?); its
+// "Confident" filter hides them, and so does the display.
+inline bool isLowConfidenceBadge(const char* badgeEn) { return strcmp(badgeEn, "Low confidence") == 0; }
+
 // Rough LiPo state of charge from the resting voltage (piecewise linear). -1 = no battery
 // (nothing connected or a nonsense reading).
 inline int lipoPercent(float v) {

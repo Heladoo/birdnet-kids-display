@@ -13,5 +13,7 @@ Raspberry Pi. If the site changes these, the displays break, so change them toge
 Raw URL used by the firmware: `https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json`
 (HTTPS, answers `ETag`, so an unchanged file costs a tiny 304).
 
+The badge named `Low confidence` (icon ❓) in `badges[]` marks a species the site is unsure about; the website's "Confident" filter hides those, and so do the displays (never show or play them).
+
 `<sci_slug>` is the scientific name lowercased, runs of non-alphanumerics replaced by `_`
 (`Motacilla alba` becomes `motacilla_alba`).

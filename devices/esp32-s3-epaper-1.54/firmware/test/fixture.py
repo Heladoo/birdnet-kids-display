@@ -10,6 +10,8 @@ import re
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
+# Species the site marks "Low confidence" are not shown (same rule as logic::isLowConfidenceBadge).
+data = [b for b in data if not any(x["en"] == "Low confidence" for x in b["badges"])]
 top = sorted(data, key=lambda b: b["last_seen"], reverse=True)[:10]
 with open(sys.argv[2], "w", encoding="utf-8") as f:
     f.write("NOW\t2026-10-18T14:05:00\n")
