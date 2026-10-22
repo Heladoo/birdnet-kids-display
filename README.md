@@ -1,35 +1,70 @@
 # BirdNET Kids display
 
-Small physical displays for [BirdNET Kids](https://github.com/Heladoo/Birdnet_kids), the kids' web
-interface of a BirdNET-Pi bird-sound station. Each display shows the birds heard most recently:
-photo, Hebrew and English name, how often it was heard this week, and when. This repo is
-separate from the website, which it only reads from.
+A small desk display that shows the birds heard most recently by a [BirdNET-Pi](https://github.com/Nachtzuster/BirdNET-Pi)
+bird-sound station, built for kids: a photo of the bird, its Hebrew and English name, how often it was
+heard this week, and when. Hold a button and it plays the bird's recording.
+
+It reads the public files of the BirdNET Kids website (a separate project) over Wi-Fi, so it works on
+any network and needs nothing running at home. It is built to run for weeks on a small battery.
 
 ## Devices
 
 | Folder | Hardware | Status |
 |---|---|---|
-| [`devices/esp32-s3-epaper-1.54`](devices/esp32-s3-epaper-1.54) | Waveshare ESP32-S3-ePaper-1.54: 200×200 black/white e-paper, SHTC3, RTC, buttons, speaker | Working on the real board: photos, names, clock, temperature, battery, buttons, 5-minute cycle |
-| [`devices/esp32-c6-touch-amoled-1.43`](devices/esp32-c6-touch-amoled-1.43) | Waveshare ESP32-C6-Touch-AMOLED-1.43: round 466×466 colour AMOLED, touch | Idea only |
+| [`devices/esp32-s3-epaper-1.54`](devices/esp32-s3-epaper-1.54) | Waveshare ESP32-S3-ePaper-1.54: 200x200 black-and-white e-paper, temperature and humidity sensor, battery, two buttons, speaker | working |
+| [`devices/esp32-c6-touch-amoled-1.43`](devices/esp32-c6-touch-amoled-1.43) | Waveshare ESP32-C6-Touch-AMOLED-1.43: round colour touch screen | idea only |
 
-Every device is a self-contained folder (firmware, tools, plan, notes). See the device's `PLAN.md`
-for the design and `CLAUDE.md` for how to build and flash it.
+Each device is a self-contained folder with its firmware, tools and notes.
+
+## What the e-paper display does
+
+- **The bird screen:** cut-out photo, Hebrew name and English name, "heard 17 times this week", badges
+  (resident, migrant, raptor, ...), "7 minutes ago", and a top bar with temperature, humidity, a plug or
+  battery symbol and the time.
+- **Only confident birds:** species the site marks "Low confidence" are never shown.
+- **Buttons:** BOOT short = other screen; BOOT held = play the bird's song (the green LED blinks);
+  PWR short = next bird; PWR held = refresh now. The bird also changes by itself every 20 minutes.
+- **Sleeps almost all the time**, waking every few minutes. Details, memory use, Wi-Fi behaviour,
+  offline behaviour and battery estimates: [`HOW_IT_WORKS.md`](devices/esp32-s3-epaper-1.54/HOW_IT_WORKS.md).
+
+A mockup of a planned "news" screen (new bird, welcome back), not built yet:
+
+![News screen mockup](devices/esp32-s3-epaper-1.54/mockups/news-3@3x.png)
+
+## How the pictures are made
+
+The e-paper only has black and white, so each bird is cut out of its photo with a segmentation model
+(U2-Net, run on your PC), cropped tight, and dithered into dots. Photos come from Wikimedia Commons.
+All birds are stored on the device, so photos never travel over Wi-Fi. A tool helps find better
+photos and compare before and after (`tools/find_photos.py`).
+
+## Build and flash (Windows, Linux or macOS)
+
+You need Python 3.10+, [PlatformIO Core](https://platformio.org) 6.2 or newer, and a USB cable.
+On Windows run `pio` from PowerShell, not Git Bash.
+
+```bash
+python -m venv .venv && . .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install platformio pillow python-bidi numpy scipy "rembg[cpu]"
+
+cd devices/esp32-s3-epaper-1.54
+cp firmware/include/secrets.example.h firmware/include/secrets.h   # then put your 2.4 GHz Wi-Fi in it
+python tools/build_pack.py          # downloads the photos, cuts the birds out, writes firmware/data/cards
+cd firmware
+pio run -e bird_display -t upload   # the firmware
+pio run -e bird_display -t uploadfs # the bird pack
+```
+
+`secrets.h` is git-ignored: your Wi-Fi password is never committed. The first run downloads a 176 MB
+segmentation model. More notes (flashing a sleeping board, test builds): the device's `CLAUDE.md`.
 
 ## Where the data comes from
 
-Everything is read from the website's public files, over the internet, so a display works on any
-Wi-Fi: [`docs/data-contract.md`](docs/data-contract.md) lists exactly which fields and files are
-used. The website's own repo is never written to from here.
-
-## Sharing code between devices
-
-Not extracted yet; with one device it would be guesswork. Candidates when the second one is
-built: the `data.json` fetch and filter, the newest-10 and rotation logic (`logic.h`), the bird
-cut-out step of the photo pipeline, and the badge and phrase tables.
+Only public, read-only files of the BirdNET Kids website: `data.json`, `news.json` and the audio clips.
+[`docs/data-contract.md`](docs/data-contract.md) lists exactly what is used. The device sends no personal
+data: it only makes HTTPS requests to GitHub.
 
 ## Licence
 
-None chosen yet. Note for whoever picks one: the e-paper firmware uses GxEPD2 (GPL-3.0), so a
-published firmware has to be GPL-3-compatible. The bird photos come from Wikimedia Commons under
-their own licences and need credit; the pack builder downloads them, the generated cards are not
-committed, and hand-picked ones are credited in each device's `overrides/CREDITS.md`.
+The source code is [MIT](LICENSE). The bird photos, and the compiled firmware (which links GPL-3.0
+libraries), have their own terms: see [`THIRD_PARTY.md`](THIRD_PARTY.md) before you distribute either.
