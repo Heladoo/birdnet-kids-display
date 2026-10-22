@@ -49,6 +49,7 @@ struct Env {
   bool clockOk = false;
   int hh = 0, mm = 0;
   int batPct = -1;  // -1 = no battery: no icon
+  bool plugged = false;  // a cable is in: the plug symbol replaces the battery icon
 };
 
 // ---------------------------------------------------------------- text
@@ -108,7 +109,12 @@ void topBar(G& g, const Env& e) {
   g.drawBitmap(52, 4, ui::ICON_DROP, 12, 12, kWhite);
   if (e.sensorOk) snprintf(buf, sizeof buf, "%d%%", (int)lroundf(e.hum)); else strcpy(buf, "--%");
   drawText(g, ui::BAR, buf, 65, 10, kWhite);
-  if (e.batPct >= 0) {  // battery: outline, nub and a fill of 16 px at 100%
+  if (e.plugged) {  // a plug: two prongs, a body and the cable (the battery icon shows only when unplugged)
+    g.fillRect(124, 6, 4, 2, kWhite);
+    g.fillRect(124, 12, 4, 2, kWhite);
+    g.fillRect(128, 4, 9, 12, kWhite);
+    g.fillRect(137, 8, 7, 4, kWhite);
+  } else if (e.batPct >= 0) {  // battery: outline, nub and a fill of 16 px at 100%
     const int x = 124, y = 5;
     g.drawRect(x, y, 20, 10, kWhite);
     g.fillRect(x + 20, y + 3, 2, 4, kWhite);

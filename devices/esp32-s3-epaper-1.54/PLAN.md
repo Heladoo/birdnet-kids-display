@@ -109,7 +109,7 @@ Wake sources while asleep: the timer (5 min) plus BOOT (ext0 on GPIO0). PWR's GP
 2. **Firmware v1:** screens A and D, top bar, 5-minute cycle, both buttons, deep sleep.
 3. **Extras:** a "new bird!" screen from `news.json` and `device.json` from the export. Sound stays out until decided otherwise.
 
-## 9. Sound POC (stages 0 and 1 done)
+## 9. Sound POC (stages 0, 1 and 2 done)
 
 Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without keeping audio in RAM or flash.
 
@@ -140,5 +140,10 @@ Goal: hold BOOT for 1.5 s and hear the recording of the bird on screen, without 
 - **Memory:** internal heap fell from 296 KB free to a 188 KB minimum (TLS handshake plus decoder, about 110 KB) and is back to 253 KB after; the clip itself lives only in PSRAM, so the clip size does not matter for internal RAM.
 - **Timing:** joining Wi-Fi took 6.6-8.3 s at -68..-71 dBm, so a button press that has to connect first waits that long before the first sound; staying connected, or connecting while the screen redraws, would hide it.
 - Licences: the Helix wrapper is GPL-3 (the repo's firmware has to be GPL-3-compatible anyway because of GxEPD2); the decoder itself is RealNetworks RPSL.
-- Next: stage 2, wire it into the UI (BOOT held 1.5 s plays the bird on screen), with the audio code moved into the normal firmware.
+
+**Stage 2 result (2026-10-22): works in the normal firmware.** Hold BOOT 1.5 s: a short chirp confirms the hold, the clip of the bird on screen plays (recordings `<slug>.mp3`, `_2`, `_3` in turn; a missing one is skipped), any new press cuts it short. A short BOOT press still switches the screen. Code: `src/sound/clip_player.h` (player, chirp), `audio_out.h`, `es8311_min.h`; `main.cpp` has `playCurrentBird()`; env `bird_clips` is the normal firmware plus clip statistics on serial.
+- **No visual feedback on purpose:** a speaker icon needed two extra full e-paper refreshes (about 2 s each) and looked bad. The audible chirp replaces it. The first chirp (70 ms, no lead-in) was inaudible because the codec ramps its output up after unmuting; 100 ms of lead-in, 160 ms of tone and amplitude 26000 fixed that.
+- **Time from hold to sound is about 12 s** (accepted for now). Costs: the 1.5 s hold, Wi-Fi connect (6-8 s measured before, less with the remembered channel and access point, `st.wifiChan/wifiBssid`), TLS handshake and headers 0.5-2.6 s depending on the connection, 0.8 s prefill. Ideas to cut it: keep Wi-Fi up longer (it is already left on for 60 s after a clip in the USB-awake mode), pre-connect Wi-Fi when BOOT is first touched, lower the prefill to 16 KB, keep the TLS session, or a smaller clip format.
+- **Bugs found with the serial log and fixed:** the stop check used to fire while the starting hold was still down (clips cut off at once, then the next recording was tried); a press now only counts after every button was seen released, and a cancel ends everything. A 404 for `_2`/`_3` resets the rotation to the first recording. Only 1 of 411 clips is empty (`corvus_monedula_3.mp3`).
+- Wi-Fi is left on for 60 s after a clip when a PC is attached, and switched off before deep sleep.
 

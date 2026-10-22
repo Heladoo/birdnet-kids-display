@@ -26,6 +26,9 @@ class AudioOut {
   // muted and is unmuted once the amplifier has settled.
   bool begin(uint32_t rate, float volumeDb) {
     if (open_) end();
+    pinMode(kAmpPin, OUTPUT);
+    digitalWrite(kAmpPin, LOW);
+    pinMode(kSupplyPin, OUTPUT);
     digitalWrite(kSupplyPin, LOW);
     delay(30);
     Wire.begin(kI2cSda, kI2cScl);

@@ -28,6 +28,7 @@
 #include "screens.h"
 #ifndef DEMO_MODE
 #include "secrets.h"
+#include "sound/clip_player.h"
 #endif
 
 #ifndef PINS_PLACEHOLDER
@@ -36,17 +37,20 @@ static_assert(PIN_EPD_SCK >= 0 && PIN_EPD_MOSI >= 0 && PIN_EPD_CS >= 0 && PIN_EP
               "Pins unconfirmed: fill include/board_pins.h from Waveshare's demo (PLAN.md section 2)");
 #endif
 
-#ifdef DEBUG_LOG
+#if defined(DEBUG_LOG) || defined(CLIP_LOG)
 #define LOG(...) Serial.printf(__VA_ARGS__)
 #else
 #define LOG(...) ((void)0)
 #endif
+
+static bool usbHostPresent();  // defined further down
 
 static const char* kDataUrl = "https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json";
 static const char* kTz = "IST-2IDT,M3.4.4/26,M10.5.0";  // Asia/Jerusalem
 constexpr uint32_t kRefreshMs = 5UL * 60 * 1000;   // wake: clock, sensor, battery, data
 constexpr uint32_t kRotateMs = 20UL * 60 * 1000;   // the bird on screen A changes this often
 constexpr uint8_t kRotateWakes = kRotateMs / kRefreshMs;
+constexpr float kSoundVolumeDb = -15;  // codec digital volume for bird clips (stage 0: -18 clear, -6 loud)
 constexpr uint32_t kNtpEverySec = 24UL * 3600;
 constexpr uint32_t kGraceMs = 4000;      // stay awake after a button wake, for the next press
 constexpr uint32_t kHoldRefreshMs = 1500;
@@ -64,6 +68,11 @@ struct RtcState {
   int8_t idx;      // which of the latest 10 screen A shows
   uint8_t n;
   uint8_t sinceChange;  // timer wakes since the bird last changed (rotation or a button)
+  uint8_t clipVar;      // which recording of the species plays next (0..2)
+  float lastTemp, lastHum;  // last good sensor reading, shown if a read fails
+  uint8_t haveSensor, sensorMisses;
+  uint8_t wifiChan;     // channel and access point of the last connection: skips the scan (0 = none)
+  uint8_t wifiBssid[6];
   uint32_t lastNtp;
   char etag[72];
   logic::Bird top[logic::kTop];
@@ -111,6 +120,39 @@ static bool readSht(float& t, float& h) {
   return ok;
 }
 
+// Temperature and humidity for the top bar. A failed read is retried (with the I2C bus
+// re-initialised in between), and if it still fails the last good reading is shown for up to
+// 3 wakes in a row (15 min) instead of "--". Stress tests (src/diag/board_diag.cpp, ~700 reads
+// under every power condition) never failed, so this guards against rare glitches on some wake path.
+static void readSensor() {
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (readSht(env.temp, env.hum)) {
+      env.sensorOk = true;
+      st.lastTemp = env.temp;
+      st.lastHum = env.hum;
+      st.haveSensor = 1;
+      st.sensorMisses = 0;
+      return;
+    }
+    LOG("sensor: read failed (attempt %d)\n", attempt + 1);
+    Wire.end();
+    delay(5);
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    delay(10);
+  }
+  if (st.haveSensor && ++st.sensorMisses <= 3) {
+    env.temp = st.lastTemp;
+    env.hum = st.lastHum;
+    env.sensorOk = true;
+    LOG("sensor: still failing, showing the last good reading (miss %d)\n", st.sensorMisses);
+  } else {
+    env.sensorOk = false;
+    LOG("sensor: no reading\n");
+  }
+}
+
+constexpr float kPluggedVolts = 4.18f;  // at or above this the charger is assumed to be holding the battery full
+
 static void readBattery() {
   analogSetPinAttenuation(PIN_BAT_ADC, ADC_11db);
   uint32_t mv = 0;
@@ -120,7 +162,11 @@ static void readBattery() {
   }
   float v = mv / 8.0f * 2.0f / 1000.0f;  // 1:2 divider
   env.batPct = logic::lipoPercent(v);
-  LOG("battery: %.2f V -> %d %%\n", v, env.batPct);
+  // Plugged in? The board has no pin for VBUS or the charger status (the charger's STAT only drives
+  // its LED), so: a PC is certain (USB data lines are alive); a plain charger is a guess from the
+  // voltage (a charger holds the battery near 4.2 V). The battery icon shows only when unplugged.
+  env.plugged = usbHostPresent() || v >= kPluggedVolts;
+  LOG("battery: %.2f V -> %d %%, plugged %d\n", v, env.batPct, (int)env.plugged);
 }
 
 // ------------------------------------------------------------------- clock
@@ -173,18 +219,53 @@ static bool loadClockFromRtc() {
 
 // ------------------------------------------------------------------- Wi-Fi
 
-static bool wifiUp() {
+// Start connecting without waiting (the e-paper redraw can run meanwhile), then wait.
+static void wifiBegin() {
+#ifndef DEMO_MODE
+  if (WiFi.status() == WL_CONNECTED) return;  // still up from a clip a moment ago
+  WiFi.mode(WIFI_STA);
+  if (st.wifiChan) {
+    WiFi.begin(WIFI_SSID, WIFI_PASS, st.wifiChan, st.wifiBssid, true);  // known channel + AP: no scan
+  } else {
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+  }
+#endif
+}
+
+// Remember where we connected (survives deep sleep), so the next connection skips the scan.
+static void wifiRemember() {
+#ifndef DEMO_MODE
+  const uint8_t* b = WiFi.BSSID();
+  if (b) {
+    st.wifiChan = (uint8_t)WiFi.channel();
+    memcpy(st.wifiBssid, b, 6);
+  }
+#endif
+}
+
+static bool wifiWait(uint32_t maxMs) {
 #ifdef DEMO_MODE
   return false;
 #else
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  for (uint32_t t0 = millis(); millis() - t0 < 12000;) {
-    if (WiFi.status() == WL_CONNECTED) return true;
+  for (uint32_t t0 = millis(); millis() - t0 < maxMs;) {
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiRemember();
+      return true;
+    }
     delay(100);
   }
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiRemember();
+    return true;
+  }
+  st.wifiChan = 0;  // the remembered access point did not work: scan next time
   return false;
 #endif
+}
+
+static bool wifiUp() {
+  wifiBegin();
+  return wifiWait(12000);
 }
 
 static void wifiDown() {
@@ -384,9 +465,64 @@ static Btn wakeButton() {
   return Btn::None;
 }
 
+#ifndef DEMO_MODE
+// A button press cuts the clip, but only a NEW press: the hold that started the clip may still be
+// down (people keep holding until they hear something), so nothing counts until every button has
+// been seen released once. A press must also last 20 ms (contact bounce).
+static bool buttonsWereReleased = false;
+static bool stopPressed() {
+  const bool down = pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR);
+  if (!buttonsWereReleased) {
+    buttonsWereReleased = !down;
+    return false;
+  }
+  if (!down) return false;
+  delay(20);
+  return pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR);
+}
+
+static uint32_t wifiHeldSince = 0;  // Wi-Fi is left on after a clip (a second press is then quick)
+
+// BOOT held: play a recording of the bird on screen. The screen is not touched (an e-paper refresh
+// looks bad and takes 2 s). A short chirp confirms the hold while the Wi-Fi connects; a new button
+// press cuts the clip. The species' recordings (<slug>.mp3, _2, _3) are tried in turn; one that is
+// missing is skipped, and the rotation then starts again at the first recording.
+static void playCurrentBird() {
+  if (st.n == 0) return;
+  const logic::Bird& b = st.top[st.idx < st.n ? st.idx : 0];
+  char slug[40], name[48];
+  logic::slugOf(b.sci, slug, sizeof slug);
+  const uint32_t t0 = millis();
+  buttonsWereReleased = false;
+  wifiBegin();  // asynchronous: connects while the chirp plays
+  clipplayer::chirp(kSoundVolumeDb);
+  const bool wifi = wifiWait(12000);
+  CLIP_PRINT("sound: chirp done and Wi-Fi %s after %u ms\n", wifi ? "up" : "FAILED", (unsigned)(millis() - t0));
+  if (wifi) {
+    for (int k = 0; k < 3; k++) {
+      int v = (st.clipVar + k) % 3;
+      if (v == 0) snprintf(name, sizeof name, "%s", slug); else snprintf(name, sizeof name, "%s_%d", slug, v + 1);
+      clipplayer::Result r = clipplayer::play(name, kSoundVolumeDb, stopPressed);
+      if (r == clipplayer::Result::Played) {
+        st.clipVar = (v + 1) % 3;
+        break;
+      }
+      if (r == clipplayer::Result::Cancelled) break;  // the person stopped it: nothing else to play
+      if (v > 0) st.clipVar = 0;                      // this recording does not exist: back to the first
+    }
+  }
+  CLIP_PRINT("sound: whole press took %u ms\n", (unsigned)(millis() - t0));
+  wifiHeldSince = millis();
+  display.hibernate();  // the panel was initialised at wake-up but is not redrawn
+}
+#else
+static void playCurrentBird() {}
+#endif
+
 static void holdPinsForSleep() {
   if (PIN_PWR_LATCH >= 0) gpio_hold_en((gpio_num_t)PIN_PWR_LATCH);
   if (PIN_AMP_EN >= 0) gpio_hold_en((gpio_num_t)PIN_AMP_EN);
+  if (PIN_PA_EN >= 0) gpio_hold_en((gpio_num_t)PIN_PA_EN);
   if (PIN_EPD_PWR >= 0) gpio_hold_en((gpio_num_t)PIN_EPD_PWR);
   gpio_deep_sleep_hold_en();
 }
@@ -406,26 +542,35 @@ static void stayAwakeOnUsb() {
   uint32_t lastData = millis(), lastCheck = millis(), lastChange = millis();
   int absent = 0;
   for (;;) {
+    if (wifiHeldSince && millis() - wifiHeldSince > 60000) {  // idle: Wi-Fi off again
+      wifiDown();
+      wifiHeldSince = 0;
+    }
     bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
     if (boot || pwr) {
       uint32_t t0 = millis();
       while ((pressed(PIN_BTN_BOOT) || pressed(PIN_BTN_PWR)) && millis() - t0 <= kHoldRefreshMs) delay(10);
       bool held = millis() - t0 > kHoldRefreshMs;
       lastChange = millis();  // a button press restarts the 20 min
-      env.sensorOk = readSht(env.temp, env.hum);
+      readSensor();
       readBattery();
-      if (pwr && held) {
-        refreshData(false);
-        lastData = millis();
-      } else if (pwr) {
-        nextBird();
+      if (boot && held) {
+        playCurrentBird();  // does not redraw
       } else {
-        st.screen ^= 1;
+        if (pwr && held) {
+          refreshData(false);
+          lastData = millis();
+        } else if (pwr) {
+          nextBird();
+        } else {
+          st.screen ^= 1;
+        }
+        render();
       }
-      render();
       waitReleased(3000);
+      lastChange = millis();
     } else if (millis() - lastData >= kRefreshMs) {
-      env.sensorOk = readSht(env.temp, env.hum);
+      readSensor();
       readBattery();
       bool rotate = millis() - lastChange >= kRotateMs;
       if (rotate) lastChange = millis();
@@ -449,6 +594,7 @@ static void goToSleep() {
 #endif
   waitReleased(2000);
   if (usbHostPresent()) stayAwakeOnUsb();
+  wifiDown();  // may still be on from a clip
   uint64_t mask = 0;
   for (int pin : {PIN_BTN_BOOT, PIN_BTN_PWR}) {
     if (pin < 0) continue;
@@ -473,6 +619,11 @@ static void initPins() {
     gpio_hold_dis((gpio_num_t)PIN_AMP_EN);
     pinMode(PIN_AMP_EN, OUTPUT);
     digitalWrite(PIN_AMP_EN, AMP_OFF);
+  }
+  if (PIN_PA_EN >= 0) {
+    gpio_hold_dis((gpio_num_t)PIN_PA_EN);
+    pinMode(PIN_PA_EN, OUTPUT);
+    digitalWrite(PIN_PA_EN, LOW);
   }
   if (PIN_EPD_PWR >= 0) {
     gpio_hold_dis((gpio_num_t)PIN_EPD_PWR);
@@ -517,6 +668,9 @@ static void demoData() {
 // -------------------------------------------------------------------- main
 
 void setup() {
+#if defined(CLIP_LOG) && !defined(DEBUG_LOG)
+  Serial.begin(115200);  // the normal firmware plus clip statistics on serial (env bird_clips)
+#endif
 #ifdef DEBUG_LOG
   Serial.begin(115200);
   delay(4000);  // time for the PC to attach to the USB serial port
@@ -534,7 +688,7 @@ void setup() {
 
   LittleFS.begin(false);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  env.sensorOk = readSht(env.temp, env.hum);  // before Wi-Fi warms the board
+  readSensor();  // before Wi-Fi warms the board
   readBattery();
   env.clockOk = loadClockFromRtc();
   SPI.begin(PIN_EPD_SCK, -1, PIN_EPD_MOSI, PIN_EPD_CS);
@@ -551,17 +705,20 @@ void setup() {
 
   // PWR: short = next bird (from memory, no Wi-Fi: fast), held 1.5 s = refresh now (Wi-Fi).
   // BOOT held 1.5 s = "refresh now" when PWR is not a readable GPIO.
-  bool refreshNow = false, nextBirdNow = false;
+  // BOOT: short = switch screen, held 1.5 s = play the bird's recording.
+  bool refreshNow = false, nextBirdNow = false, soundNow = false;
   if (btn == Btn::Pwr) {
     for (uint32_t t0 = millis(); pressed(PIN_BTN_PWR) && !refreshNow; delay(10))
       if (millis() - t0 >= kHoldRefreshMs) refreshNow = true;
     nextBirdNow = !refreshNow;
-  } else if (btn == Btn::Boot && PIN_BTN_PWR < 0) {
-    for (uint32_t t0 = millis(); pressed(PIN_BTN_BOOT) && !refreshNow; delay(10))
-      if (millis() - t0 >= kHoldRefreshMs) refreshNow = true;
+  } else if (btn == Btn::Boot) {
+    for (uint32_t t0 = millis(); pressed(PIN_BTN_BOOT) && !soundNow; delay(10))
+      if (millis() - t0 >= kHoldRefreshMs) soundNow = true;
   }
 
-  if (btn == Btn::Boot && !refreshNow) {
+  if (soundNow) {
+    playCurrentBird();  // does not redraw
+  } else if (btn == Btn::Boot) {
     st.screen ^= 1;
   } else if (nextBirdNow) {
     nextBird();
@@ -572,7 +729,7 @@ void setup() {
   } else {
     refreshData(false);  // power-on, reset, or PWR
   }
-  render();
+  if (!soundNow) render();
 
   if (btn != Btn::None) {  // a person is here: wait for the next press
     waitReleased(3000);     // a press still held from the wake-up is not a new one
@@ -586,14 +743,18 @@ void setup() {
         if (millis() - t0 > kHoldRefreshMs) break;
       }
       bool held = millis() - t0 > kHoldRefreshMs;
-      if ((pwr && held) || (boot && PIN_BTN_PWR < 0 && held)) {
-        refreshData(false);
-      } else if (pwr) {
-        nextBird();
+      if (boot && held) {
+        playCurrentBird();  // does not redraw
       } else {
-        st.screen ^= 1;
+        if (pwr && held) {
+          refreshData(false);
+        } else if (pwr) {
+          nextBird();
+        } else {
+          st.screen ^= 1;
+        }
+        render();
       }
-      render();
       waitReleased(3000);
       last = millis();
     }
