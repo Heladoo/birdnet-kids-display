@@ -483,6 +483,35 @@ static bool stopPressed() {
 
 static uint32_t wifiHeldSince = 0;  // Wi-Fi is left on after a clip (a second press is then quick)
 
+// The green LED blinks (2 Hz) from the chirp to the end of the clip. It runs in its own small task
+// because the playback loop blocks.
+static volatile bool ledBlink = false;
+static void ledTask(void*) {
+  for (;;) {
+    if (ledBlink) {
+      digitalWrite(PIN_LED, LED_ON);
+      vTaskDelay(pdMS_TO_TICKS(250));
+      digitalWrite(PIN_LED, !LED_ON);
+      vTaskDelay(pdMS_TO_TICKS(250));
+    } else {
+      digitalWrite(PIN_LED, !LED_ON);
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+  }
+}
+static void ledBlinkSet(bool on) {
+  static bool started = false;
+  if (!started) {
+    gpio_hold_dis((gpio_num_t)PIN_LED);
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, !LED_ON);
+    xTaskCreate(ledTask, "led", 2048, nullptr, 1, nullptr);
+    started = true;
+  }
+  ledBlink = on;
+  if (!on) digitalWrite(PIN_LED, !LED_ON);
+}
+
 // BOOT held: play a recording of the bird on screen. The screen is not touched (an e-paper refresh
 // looks bad and takes 2 s). A short chirp confirms the hold while the Wi-Fi connects; a new button
 // press cuts the clip. The species' recordings (<slug>.mp3, _2, _3) are tried in turn; one that is
@@ -494,6 +523,7 @@ static void playCurrentBird() {
   logic::slugOf(b.sci, slug, sizeof slug);
   const uint32_t t0 = millis();
   buttonsWereReleased = false;
+  ledBlinkSet(true);
   wifiBegin();  // asynchronous: connects while the chirp plays
   clipplayer::chirp(kSoundVolumeDb);
   const bool wifi = wifiWait(12000);
@@ -511,6 +541,7 @@ static void playCurrentBird() {
       if (v > 0) st.clipVar = 0;                      // this recording does not exist: back to the first
     }
   }
+  ledBlinkSet(false);
   CLIP_PRINT("sound: whole press took %u ms\n", (unsigned)(millis() - t0));
   wifiHeldSince = millis();
   display.hibernate();  // the panel was initialised at wake-up but is not redrawn
@@ -523,6 +554,11 @@ static void holdPinsForSleep() {
   if (PIN_PWR_LATCH >= 0) gpio_hold_en((gpio_num_t)PIN_PWR_LATCH);
   if (PIN_AMP_EN >= 0) gpio_hold_en((gpio_num_t)PIN_AMP_EN);
   if (PIN_PA_EN >= 0) gpio_hold_en((gpio_num_t)PIN_PA_EN);
+  if (PIN_LED >= 0) {  // LED off while asleep
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, !LED_ON);
+    gpio_hold_en((gpio_num_t)PIN_LED);
+  }
   if (PIN_EPD_PWR >= 0) gpio_hold_en((gpio_num_t)PIN_EPD_PWR);
   gpio_deep_sleep_hold_en();
 }
@@ -620,6 +656,7 @@ static void initPins() {
     pinMode(PIN_AMP_EN, OUTPUT);
     digitalWrite(PIN_AMP_EN, AMP_OFF);
   }
+  if (PIN_LED >= 0) gpio_hold_dis((gpio_num_t)PIN_LED);  // released after a deep sleep (see holdPinsForSleep)
   if (PIN_PA_EN >= 0) {
     gpio_hold_dis((gpio_num_t)PIN_PA_EN);
     pinMode(PIN_PA_EN, OUTPUT);

@@ -29,4 +29,6 @@
 #define PIN_AMP_EN 42        // audio supply (codec + amplifier), ACTIVE LOW in Waveshare's demo: HIGH = off.
                              // PA_CTRL (GPIO46, a strapping pin) is left alone.
 #define AMP_OFF HIGH
-#define PIN_PA_EN 46         // speaker amplifier enable, active high; low (off) except while a clip plays
+#define PIN_LED 3            // green user LED (schematic: LED_G on GP3); active low (Waveshare's demo toggles it)
+#define LED_ON LOW
+#define PIN_PA_EN 46        // speaker amplifier enable, active high; low (off) except while a clip plays
