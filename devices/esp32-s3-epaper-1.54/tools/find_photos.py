@@ -225,6 +225,50 @@ def curated(picks_path, per_image=8):
     print(f"{len(items)} species -> {(len(items) + per_image - 1) // per_image} sheet(s) out/photo_before_after_N.png")
 
 
+def variants(sci, sets):
+    """The species' own photo (current cut-out) processed several ways, side by side, to choose
+    per-species settings for processing.json. `sets` = list of dicts (gamma / lift / clean)."""
+    p = ROOT / "cache" / "cut" / f"{slug(sci)}.png"
+    rgba = Image.open(p).convert("RGBA")
+    cw, ch = BOX[0] * 2, BOX[1] * 2
+    small = ImageFont.load_default(13)
+    tiles = [("CURRENT (default processing)", to_1bit(to_gray_cutout(rgba, BOX)))]
+    for i, st in enumerate(sets, 1):
+        tiles.append((f"VARIANT {i}: " + ", ".join(f"{k} {v}" for k, v in st.items()), to_1bit(to_gray_cutout(rgba, BOX, **st))))
+    cols = 2
+    rows = (len(tiles) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * (cw + 10) + 10, rows * (ch + 30) + 10), "white")
+    dr = ImageDraw.Draw(sheet)
+    for i, (label, im) in enumerate(tiles):
+        x, y = 10 + (i % cols) * (cw + 10), 10 + (i // cols) * (ch + 30)
+        sheet.paste(im.convert("RGB").resize((cw, ch), Image.NEAREST), (x, y))
+        dr.rectangle((x, y, x + cw - 1, y + ch - 1), outline=(160, 160, 160))
+        dr.text((x, y + ch + 4), label, font=small, fill="black")
+    out = ROOT / "out" / f"variants_{slug(sci)}.png"
+    out.parent.mkdir(exist_ok=True)
+    sheet.save(out)
+    print(out)
+
+
+def adopt(snames):
+    """Use the picked candidate for each species: copy it to overrides/<slug>.jpg and record its
+    credit in overrides/CREDITS.md (the pack builder then cuts the bird out of it on the next run)."""
+    import shutil
+
+    picks = json.load(open(ROOT / "photo_picks.json", encoding="utf-8"))
+    ov = ROOT / "overrides"
+    ov.mkdir(exist_ok=True)
+    credits = ov / "CREDITS.md"
+    lines = credits.read_text(encoding="utf-8").rstrip("\n").split("\n") if credits.exists() else []
+    for sci in snames:
+        c = json.loads((CAND / slug(sci) / "candidates.json").read_text(encoding="utf-8"))[picks[sci] - 1]
+        shutil.copy(CAND / slug(sci) / c["file"], ov / f"{slug(sci)}.jpg")
+        row = f"| {slug(sci)}.jpg | {c['page']} | {c['license']}, {c['artist']} |"
+        lines = [ln for ln in lines if not ln.startswith(f"| {slug(sci)}.jpg ")] + [row]
+        print(f"adopted {sci}: {c['title']} ({c['license']})")
+    credits.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -238,6 +282,10 @@ def main():
         cols = int(args[args.index("--cols") + 1]) if "--cols" in args else 3
         gain = float(args[args.index("--min-gain") + 1]) if "--min-gain" in args else 1.25
         sheets(cols, gain)
+    elif args[0] == "variants":  # variants "Phoenicurus ochruros" '{"gamma":0.7}' '{"gamma":0.55,"lift":35}' ...
+        variants(args[1], [json.loads(a) for a in args[2:]])
+    elif args[0] == "adopt":
+        adopt(args[1:])
     elif args[0] == "curated":
         curated(args[1] if len(args) > 1 else ROOT / "photo_picks.json")
     else:

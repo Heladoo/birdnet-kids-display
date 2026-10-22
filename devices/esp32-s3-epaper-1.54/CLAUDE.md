@@ -17,6 +17,9 @@ An e-paper desk display for BirdNET Kids: a Waveshare **ESP32-S3-ePaper-1.54** (
 - `tools/photo_steps.py out.png photo.jpg@x,y …`: side-by-side sheet of each step, for checking crops.
 - `tools/mockups.py data.json out --photo bird.jpg --focus x,y` (data.json: download it from the site): renders screens A and D (`mockups/` holds D).
 - `tools/build_pack.py`: the bird-picture pack and `firmware/src/ui_assets.h`; the card format is in its docstring.
+- `tools/find_photos.py`: finds better Commons photos for weak birds (`search`), renders numbered before/after sheets (`curated`, from `photo_picks.json`), adopts approved ones into `overrides/` with credits (`adopt <species>`), and compares per-species processing settings (`variants`). `processing.json` holds those settings (`gamma`, `lift`, `clean`) for birds whose plumage processes badly, e.g. the Black Redstart's black head. Workflow: search, curate by eye (the automatic score alone picks maps and eggs), show the user, adopt only what they approve, rebuild the pack, `uploadfs`.
+- Birds the site marks "Low confidence" are hidden on the display, so their photos do not matter.
+- A newly detected species may have no Hebrew name yet; the pack builder then uses the English name.
 - `firmware/`: the ESP32-S3 firmware (PlatformIO), with `test/run.sh` for the PC test.
 - Needs Python 3 + Pillow. If Pillow has no raqm (often on Windows), `pip install python-bidi` for Hebrew order.
 

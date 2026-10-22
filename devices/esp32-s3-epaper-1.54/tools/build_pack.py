@@ -173,11 +173,11 @@ def get_cutout(photo_img, s, cache, recut, src=None):
     return rgba
 
 
-def build_card(sp, photo_img, focus, cutout=None):
+def build_card(sp, photo_img, focus, cutout=None, proc=None):
     if photo_img is None:
         photo = Image.new("1", PHOTO, 1)
     elif cutout is not None:
-        photo = to_1bit(to_gray_cutout(cutout, PHOTO))
+        photo = to_1bit(to_gray_cutout(cutout, PHOTO, **(proc or {})))
     else:
         photo = to_1bit(to_gray(photo_img, PHOTO, focus))
     he_big = clamp_w(fit_strip(sp["he"], 22, True, HE_BIG_H, rtl=True))
@@ -193,9 +193,10 @@ def build_card(sp, photo_img, focus, cutout=None):
 def collect_species(data_path, expert_path):
     sp = {}
     for b in json.load(open(expert_path, encoding="utf-8")):
-        sp[b["sci"]] = {"sci": b["sci"], "en": b["com"], "he": b["he"], "image": None}
+        sp[b["sci"]] = {"sci": b["sci"], "en": b["com"], "he": b["he"] or b["com"], "image": None}
     for b in json.load(open(data_path, encoding="utf-8")):  # data.json wins: it has the photo URL
-        sp[b["sci"]] = {"sci": b["sci"], "en": b["name"], "he": b["he_name"], "image": b.get("image")}
+        # a newly detected species may not have its Hebrew name yet: the English one stands in
+        sp[b["sci"]] = {"sci": b["sci"], "en": b["name"], "he": b["he_name"] or b["name"], "image": b.get("image")}
     return sorted(sp.values(), key=lambda s: s["sci"])
 
 
@@ -319,6 +320,9 @@ def main():
     cards.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
     crops = json.load(open(ROOT / "crops.json")) if (ROOT / "crops.json").exists() else {}
+    # per-species cut-out processing, e.g. {"Phoenicurus ochruros": {"gamma": 0.5, "lift": 70, "clean": 0.03}}
+    # (see epaper_image.to_gray_cutout; `find_photos.py variants` renders options side by side)
+    processing = json.load(open(ROOT / "processing.json")) if (ROOT / "processing.json").exists() else {}
 
     if "--no-assets" not in sys.argv:
         (fw / "src").mkdir(parents=True, exist_ok=True)
@@ -335,7 +339,7 @@ def main():
         cutout = None
         if img is not None and use_cut and (recut or not (cache / "cut" / f"{slug(sp['sci'])}.failed").exists()):
             cutout = get_cutout(img, slug(sp["sci"]), cache, recut, src)
-        blob, panel = build_card(sp, img, focus, cutout)
+        blob, panel = build_card(sp, img, focus, cutout, processing.get(sp["sci"]))
         (cards / f"{slug(sp['sci'])}.bin").write_bytes(blob)
         total += len(blob)
         ok = img is not None

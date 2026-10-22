@@ -26,11 +26,29 @@ def cut_out(img, max_side=1024):
     return rgba if 0.02 <= frac <= 0.90 else None
 
 
-def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True):
+def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=0.0):
     """Grayscale picture of a cut-out bird for e-paper: crop tight to the bird,
     scale it up to fill `size` (proportions kept), clean white background, thin
     outline. The background fade is skipped (the background is gone); contrast
-    is measured on the bird alone."""
+    is measured on the bird alone.
+
+    Per-species tuning (processing.json, used by build_pack.py):
+      gamma < 1 lightens the mid-tones; lift (0..100) raises the black level, so very dark plumage
+      (a black head) still shows texture in the dither instead of one black blob; clean (e.g. 0.03)
+      deletes cut-out specks smaller than that fraction of the bird's main piece."""
+    if clean:
+        import numpy as np
+        from scipy import ndimage
+
+        a = np.asarray(rgba.split()[3]) > 128
+        lab, n = ndimage.label(a)
+        if n > 1:
+            sizes = np.bincount(lab.ravel())
+            keep = sizes >= clean * sizes[1:].max()
+            keep[0] = False
+            a2 = keep[lab]
+            rgba = rgba.copy()
+            rgba.putalpha(Image.fromarray((a2 * 255).astype("uint8")))
     alpha = rgba.split()[3].point(lambda v: 255 if v > 128 else 0)
     x0, y0, x1, y1 = alpha.getbbox()
     p = int(pad * max(x1 - x0, y1 - y0))
@@ -46,6 +64,8 @@ def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True):
     g = g.filter(ImageFilter.UnsharpMask(radius=6, percent=80, threshold=0))
     g = g.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=1))
     g = g.point(lambda v: int(255 * (v / 255) ** gamma))
+    if lift:
+        g = g.point(lambda v: lift + v * (255 - lift) // 255)
     bg = Image.new("L", g.size, 255)
     g = Image.composite(g, bg, mask)
     if outline:  # a thin black line around the bird, so the shape reads at a glance
