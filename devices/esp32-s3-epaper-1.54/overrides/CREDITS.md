@@ -20,3 +20,4 @@ and dither better on the e-paper. Credit the photographers if these are ever pub
 | asio_otus.jpg | https://commons.wikimedia.org/wiki/File:Asio_otus_Downsview_Park_Toronto_3.jpg | CC BY-SA 4.0, Mykola Swarnyk |
 | pernis_ptilorhynchus.jpg | https://commons.wikimedia.org/wiki/File:Crested_honey_buzzard_(Pernis_ptilorhynchus)_10.jpg | CC BY-SA 4.0, Afsarnayakkan |
 | gymnoris_xanthocollis.jpg | https://commons.wikimedia.org/wiki/File:Chestnut-shouldered_Petronia_(Petronia_xanthocollis)_at_Bharatpur_I_IMG_5262.jpg | CC BY-SA 3.0, J.M.Garg |
+| accipiter_nisus.jpg | https://commons.wikimedia.org/wiki/File:Accipiter_nisus_kill.jpg | CC BY-SA 2.0, Eddy Van 3000 |

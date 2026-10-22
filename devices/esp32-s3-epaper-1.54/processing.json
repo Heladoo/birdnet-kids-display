@@ -8,5 +8,11 @@
     "gamma": 0.6,
     "lift": 35,
     "clean": 0.03
+  },
+  "Halcyon smyrnensis": {
+    "gamma": 0.65,
+    "lift": 35,
+    "clean": 0.05,
+    "trim_bottom": 0.16
   }
 }
