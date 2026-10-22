@@ -26,7 +26,7 @@ def cut_out(img, max_side=1024):
     return rgba if 0.02 <= frac <= 0.90 else None
 
 
-def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=0.0):
+def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=0.0, trim_bottom=0.0):
     """Grayscale picture of a cut-out bird for e-paper: crop tight to the bird,
     scale it up to fill `size` (proportions kept), clean white background, thin
     outline. The background fade is skipped (the background is gone); contrast
@@ -35,7 +35,9 @@ def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=
     Per-species tuning (processing.json, used by build_pack.py):
       gamma < 1 lightens the mid-tones; lift (0..100) raises the black level, so very dark plumage
       (a black head) still shows texture in the dither instead of one black blob; clean (e.g. 0.03)
-      deletes cut-out specks smaller than that fraction of the bird's main piece."""
+      deletes cut-out specks smaller than that fraction of the bird's main piece; trim_bottom
+      (e.g. 0.12) cuts that fraction of the bird's height off the bottom, for a perch or stem
+      the cut-out took along (done after clean)."""
     if clean:
         import numpy as np
         from scipy import ndimage
@@ -49,6 +51,14 @@ def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=
             a2 = keep[lab]
             rgba = rgba.copy()
             rgba.putalpha(Image.fromarray((a2 * 255).astype("uint8")))
+    if trim_bottom:
+        a = rgba.split()[3].point(lambda v: 255 if v > 128 else 0)
+        bx0, by0, bx1, by1 = a.getbbox()
+        cut = int(by1 - trim_bottom * (by1 - by0))
+        al = rgba.split()[3].copy()
+        al.paste(0, (0, cut, rgba.width, rgba.height))
+        rgba = rgba.copy()
+        rgba.putalpha(al)
     alpha = rgba.split()[3].point(lambda v: 255 if v > 128 else 0)
     x0, y0, x1, y1 = alpha.getbbox()
     p = int(pad * max(x1 - x0, y1 - y0))

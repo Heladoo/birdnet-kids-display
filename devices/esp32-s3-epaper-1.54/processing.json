@@ -1,3 +1,12 @@
 {
-  "Phoenicurus ochruros": {"gamma": 0.6, "lift": 35, "clean": 0.03}
+  "Phoenicurus ochruros": {
+    "gamma": 0.6,
+    "lift": 35,
+    "clean": 0.03
+  },
+  "Pyrrhocorax pyrrhocorax": {
+    "gamma": 0.6,
+    "lift": 35,
+    "clean": 0.03
+  }
 }

@@ -102,11 +102,12 @@ def common_names():
     return names
 
 
-def search(species, per=20, deep=False):
+def search(species, per=20, deep=False, extra=()):
     """deep: 30 results for the scientific name plus 30 more for the common name (a second chance
-    when the first search found nothing usable)."""
+    when the first search found nothing usable). extra: more queries, each with {sci} / {common}
+    filled in (e.g. "{common} perched"); their results are added to the species' candidates."""
     CAND.mkdir(parents=True, exist_ok=True)
-    names = common_names() if deep else {}
+    names = common_names() if (deep or extra) else {}
     for i, sci in enumerate(species, 1):
         d = CAND / slug(sci)
         d.mkdir(exist_ok=True)
@@ -115,6 +116,10 @@ def search(species, per=20, deep=False):
             if deep and names.get(sci):
                 seen = {c["title"] for c in found}
                 found += [c for c in commons_search(names[sci] + " bird", 30) if c["title"] not in seen]
+            for q in extra:
+                seen = {c["title"] for c in found}
+                found += [c for c in commons_search(q.format(sci=sci, common=names.get(sci, sci)), 30)
+                          if c["title"] not in seen]
         except Exception as e:
             print(f"[{i}/{len(species)}] {sci}: search failed: {e}", flush=True)
             continue
@@ -306,10 +311,17 @@ def main():
         raise SystemExit(__doc__)
     if args[0] == "search":
         deep = "--deep" in args
-        names = [a for a in args[1:] if a != "--deep"]
+        rest, extra = [], []
+        it = iter(args[1:])
+        for a in it:
+            if a == "--q":
+                extra.append(next(it))
+            elif a != "--deep":
+                rest.append(a)
+        names = rest
         if names == ["--weak"]:
             names = json.load(open(ROOT / "cache" / "weak_list.json", encoding="utf-8"))
-        search(names, deep=deep)
+        search(names, deep=deep, extra=extra)
     elif args[0] == "sheet":
         cols = int(args[args.index("--cols") + 1]) if "--cols" in args else 3
         gain = float(args[args.index("--min-gain") + 1]) if "--min-gain" in args else 1.25

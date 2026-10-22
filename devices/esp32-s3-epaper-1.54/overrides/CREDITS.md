@@ -17,3 +17,6 @@ and dither better on the e-paper. Credit the photographers if these are ever pub
 | psittacula_eupatria.jpg | https://commons.wikimedia.org/wiki/File:Psittacula_eupatria_-_Bird_Kingdom.jpg | CC BY-SA 2.5 ca, The Cosmonaut |
 | tachybaptus_ruficollis.jpg | https://commons.wikimedia.org/wiki/File:Gr%C3%A8be_castagneux_Lac_de_Tunis.jpg | CC BY-SA 4.0, El Golli Mohamed |
 | tringa_glareola.jpg | https://commons.wikimedia.org/wiki/File:Wood_sandpiper_(Tringa_glareola)_Sfax.jpg | CC BY-SA 4.0, Charles J. Sharp |
+| asio_otus.jpg | https://commons.wikimedia.org/wiki/File:Asio_otus_Downsview_Park_Toronto_3.jpg | CC BY-SA 4.0, Mykola Swarnyk |
+| pernis_ptilorhynchus.jpg | https://commons.wikimedia.org/wiki/File:Crested_honey_buzzard_(Pernis_ptilorhynchus)_10.jpg | CC BY-SA 4.0, Afsarnayakkan |
+| gymnoris_xanthocollis.jpg | https://commons.wikimedia.org/wiki/File:Chestnut-shouldered_Petronia_(Petronia_xanthocollis)_at_Bharatpur_I_IMG_5262.jpg | CC BY-SA 3.0, J.M.Garg |
