@@ -14,5 +14,9 @@
     "lift": 35,
     "clean": 0.05,
     "trim_bottom": 0.16
+  },
+  "Dendrocopos syriacus": {
+    "open_px": 3,
+    "clean": 0.05
   }
 }

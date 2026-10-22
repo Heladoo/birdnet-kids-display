@@ -21,3 +21,4 @@ and dither better on the e-paper. Credit the photographers if these are ever pub
 | pernis_ptilorhynchus.jpg | https://commons.wikimedia.org/wiki/File:Crested_honey_buzzard_(Pernis_ptilorhynchus)_10.jpg | CC BY-SA 4.0, Afsarnayakkan |
 | gymnoris_xanthocollis.jpg | https://commons.wikimedia.org/wiki/File:Chestnut-shouldered_Petronia_(Petronia_xanthocollis)_at_Bharatpur_I_IMG_5262.jpg | CC BY-SA 3.0, J.M.Garg |
 | accipiter_nisus.jpg | https://commons.wikimedia.org/wiki/File:Accipiter_nisus_kill.jpg | CC BY-SA 2.0, Eddy Van 3000 |
+| dendrocopos_syriacus.jpg | https://commons.wikimedia.org/wiki/File:Dendrocopos_syriacus_-_Syrian_Woodpecker,_Adana_2017-12-10_05-1.jpg | CC BY-SA 4.0, Zeynel Cebeci |

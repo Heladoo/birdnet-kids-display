@@ -26,7 +26,7 @@ def cut_out(img, max_side=1024):
     return rgba if 0.02 <= frac <= 0.90 else None
 
 
-def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=0.0, trim_bottom=0.0):
+def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=0.0, trim_bottom=0.0, open_px=0):
     """Grayscale picture of a cut-out bird for e-paper: crop tight to the bird,
     scale it up to fill `size` (proportions kept), clean white background, thin
     outline. The background fade is skipped (the background is gone); contrast
@@ -37,7 +37,17 @@ def to_gray_cutout(rgba, size, pad=0.06, gamma=1.0, outline=True, lift=0, clean=
       (a black head) still shows texture in the dither instead of one black blob; clean (e.g. 0.03)
       deletes cut-out specks smaller than that fraction of the bird's main piece; trim_bottom
       (e.g. 0.12) cuts that fraction of the bird's height off the bottom, for a perch or stem
-      the cut-out took along (done after clean)."""
+      the cut-out took along (done after clean); open_px (e.g. 3) removes strokes thinner than about
+      2 x open_px cut-out pixels, such as a twig or wire attached to the bird (it also rounds off
+      the finest details, so keep it small).
+    Order: clean, open_px, trim_bottom."""
+    if open_px:
+        a = rgba.split()[3].point(lambda v: 255 if v > 128 else 0)
+        k = 2 * int(open_px) + 1
+        a = a.filter(ImageFilter.MinFilter(k)).filter(ImageFilter.MaxFilter(k))
+        al = ImageChops.multiply(rgba.split()[3], a.point(lambda v: 255 if v else 0))
+        rgba = rgba.copy()
+        rgba.putalpha(al)
     if clean:
         import numpy as np
         from scipy import ndimage
