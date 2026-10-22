@@ -92,13 +92,29 @@ def measure(rgba):
     return score, {"bw": int(w * s), "main": round(main, 3), "touch": touch, "fg": round(fg, 3)}
 
 
-def search(species, per=20):
+def common_names():
+    names = {}
+    for f in ("data.json", "expert-data.json"):
+        p = ROOT / "cache" / f
+        if p.exists():
+            for b in json.load(open(p, encoding="utf-8")):
+                names[b["sci"]] = b.get("name") or b.get("com") or b["sci"]
+    return names
+
+
+def search(species, per=20, deep=False):
+    """deep: 30 results for the scientific name plus 30 more for the common name (a second chance
+    when the first search found nothing usable)."""
     CAND.mkdir(parents=True, exist_ok=True)
+    names = common_names() if deep else {}
     for i, sci in enumerate(species, 1):
         d = CAND / slug(sci)
         d.mkdir(exist_ok=True)
         try:
-            found = commons_search(sci, per)
+            found = commons_search(sci, 30 if deep else per)
+            if deep and names.get(sci):
+                seen = {c["title"] for c in found}
+                found += [c for c in commons_search(names[sci] + " bird", 30) if c["title"] not in seen]
         except Exception as e:
             print(f"[{i}/{len(species)}] {sci}: search failed: {e}", flush=True)
             continue
@@ -207,8 +223,14 @@ def curated(picks_path, per_image=8):
         sheet = Image.new("RGB", (2 * cell_w + 10, rows * (ch + 56) + 10), "white")
         dr = ImageDraw.Draw(sheet)
         for i, (sci, k) in enumerate(chunk):
-            c = json.loads((CAND / slug(sci) / "candidates.json").read_text(encoding="utf-8"))[k - 1]
             before, bdet = card_before(sci)
+            if isinstance(k, dict):  # {"proc": {...}}: the same photo, processed differently
+                rgba = Image.open(ROOT / "cache" / "cut" / f"{slug(sci)}.png").convert("RGBA")
+                c = {"bw": bdet["bw"] if bdet else 0, "license": "same photo, " + ", ".join(f"{a} {b}" for a, b in k["proc"].items())}
+                after_im = to_1bit(to_gray_cutout(rgba, BOX, **k["proc"]))
+            else:
+                c = json.loads((CAND / slug(sci) / "candidates.json").read_text(encoding="utf-8"))[k - 1]
+                after_im = after(sci, c)
             x0, y0 = 10 + (i % 2) * cell_w, 10 + (i // 2) * (ch + 56)
             num = s + i + 1  # the number to answer with ("7: replace")
             dr.rectangle((x0, y0 - 2, x0 + 40, y0 + 18), fill="black")
@@ -216,13 +238,13 @@ def curated(picks_path, per_image=8):
             dr.text((x0 + 50, y0), f"{names.get(sci, sci)}  ({sci})", font=font, fill="black")
             for j, (im, label) in enumerate((
                     (before, "BEFORE" + (f"  bird {bdet['bw']} px wide" if bdet else "  (no photo)")),
-                    (after(sci, c), f"AFTER  bird {c['bw']} px wide  {c['license']}"))):
+                    (after_im, f"AFTER  bird {c['bw']} px wide  {c['license']}"))):
                 x = x0 + j * (cw + 10)
                 sheet.paste(im.convert("RGB").resize((cw, ch), Image.NEAREST), (x, y0 + 20))
                 dr.rectangle((x, y0 + 20, x + cw - 1, y0 + 20 + ch - 1), outline=(160, 160, 160))
                 dr.text((x, y0 + 22 + ch), label, font=small, fill="black")
-        sheet.save(out_dir / f"photo_before_after_{n}.png")
-    print(f"{len(items)} species -> {(len(items) + per_image - 1) // per_image} sheet(s) out/photo_before_after_N.png")
+        sheet.save(out_dir / f"{Path(picks_path).stem}_{n}.png")
+    print(f"{len(items)} species -> {(len(items) + per_image - 1) // per_image} sheet(s) out/{Path(picks_path).stem}_N.png")
 
 
 def variants(sci, sets):
@@ -255,12 +277,21 @@ def adopt(snames):
     credit in overrides/CREDITS.md (the pack builder then cuts the bird out of it on the next run)."""
     import shutil
 
-    picks = json.load(open(ROOT / "photo_picks.json", encoding="utf-8"))
+    picks = {}
+    for f in sorted(ROOT.glob("photo_picks*.json")):  # later files win
+        picks.update(json.load(open(f, encoding="utf-8")))
     ov = ROOT / "overrides"
     ov.mkdir(exist_ok=True)
     credits = ov / "CREDITS.md"
     lines = credits.read_text(encoding="utf-8").rstrip("\n").split("\n") if credits.exists() else []
     for sci in snames:
+        if isinstance(picks[sci], dict):  # a processing-only pick: goes to processing.json, no new photo
+            pj = ROOT / "processing.json"
+            proc = json.load(open(pj, encoding="utf-8")) if pj.exists() else {}
+            proc[sci] = picks[sci]["proc"]
+            pj.write_text(json.dumps(proc, indent=2) + "\n", encoding="utf-8")
+            print(f"processing for {sci}: {picks[sci]['proc']}")
+            continue
         c = json.loads((CAND / slug(sci) / "candidates.json").read_text(encoding="utf-8"))[picks[sci] - 1]
         shutil.copy(CAND / slug(sci) / c["file"], ov / f"{slug(sci)}.jpg")
         row = f"| {slug(sci)}.jpg | {c['page']} | {c['license']}, {c['artist']} |"
@@ -274,10 +305,11 @@ def main():
     if not args:
         raise SystemExit(__doc__)
     if args[0] == "search":
-        names = args[1:]
+        deep = "--deep" in args
+        names = [a for a in args[1:] if a != "--deep"]
         if names == ["--weak"]:
             names = json.load(open(ROOT / "cache" / "weak_list.json", encoding="utf-8"))
-        search(names)
+        search(names, deep=deep)
     elif args[0] == "sheet":
         cols = int(args[args.index("--cols") + 1]) if "--cols" in args else 3
         gain = float(args[args.index("--min-gain") + 1]) if "--min-gain" in args else 1.25

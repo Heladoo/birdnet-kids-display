@@ -1,0 +1,11 @@
+{
+  "Accipiter nisus": 8,
+  "Asio otus": 7,
+  "Dendrocopos syriacus": 1,
+  "Halcyon smyrnensis": 3,
+  "Pernis ptilorhynchus": 3,
+  "Gymnoris xanthocollis": 1,
+  "Merops orientalis": 1,
+  "Ficedula albicollis": 1,
+  "Pyrrhocorax pyrrhocorax": {"proc": {"gamma": 0.6, "lift": 35, "clean": 0.03}}
+}
