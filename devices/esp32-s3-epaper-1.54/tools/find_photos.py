@@ -195,7 +195,7 @@ def curated(picks_path, per_image=8):
         if p.exists():
             for b in json.load(open(p, encoding="utf-8")):
                 names[b["sci"]] = b.get("name") or b.get("com") or b["sci"]
-    font, small = ImageFont.load_default(15), ImageFont.load_default(12)
+    font, small, big = ImageFont.load_default(15), ImageFont.load_default(12), ImageFont.load_default(18)
     cw, ch = BOX[0] * 2, BOX[1] * 2
     cell_w = 2 * cw + 30
     out_dir = ROOT / "out"
@@ -210,7 +210,10 @@ def curated(picks_path, per_image=8):
             c = json.loads((CAND / slug(sci) / "candidates.json").read_text(encoding="utf-8"))[k - 1]
             before, bdet = card_before(sci)
             x0, y0 = 10 + (i % 2) * cell_w, 10 + (i // 2) * (ch + 56)
-            dr.text((x0, y0), f"{names.get(sci, sci)}  ({sci})", font=font, fill="black")
+            num = s + i + 1  # the number to answer with ("7: replace")
+            dr.rectangle((x0, y0 - 2, x0 + 40, y0 + 18), fill="black")
+            dr.text((x0 + 6, y0), str(num), font=big, fill="white")
+            dr.text((x0 + 50, y0), f"{names.get(sci, sci)}  ({sci})", font=font, fill="black")
             for j, (im, label) in enumerate((
                     (before, "BEFORE" + (f"  bird {bdet['bw']} px wide" if bdet else "  (no photo)")),
                     (after(sci, c), f"AFTER  bird {c['bw']} px wide  {c['license']}"))):
