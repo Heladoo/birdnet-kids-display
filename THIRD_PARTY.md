@@ -43,6 +43,12 @@ model (Apache-2.0), python-bidi (LGPL). They are installed with `pip` and not di
   photographers' terms (attribution, and share-alike for CC BY-SA). The cards are not committed; if you
   publish a pack, publish the credits with it.
 
+## Weather data
+
+The forecast on the Today screen comes from [Open-Meteo](https://open-meteo.com): data under CC BY 4.0, so
+credit "Weather data by Open-Meteo.com". Their free service is meant for non-commercial use; read their
+terms if you use it otherwise.
+
 ## Data and sounds
 
 The displays read the public files of the BirdNET Kids website (`data.json`, `news.json`, and the

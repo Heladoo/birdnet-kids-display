@@ -14,7 +14,7 @@ below is about the current firmware (`firmware/src/main.cpp`). `PLAN.md` has the
                           ESP32-S3 on the Waveshare e-paper board
         flash: the 161 bird cards (photo + Hebrew/English name), fonts and icons
         RTC memory: the latest 10 birds, which one is shown, last sensor reading, Wi-Fi channel
-        e-paper: shows screen A (the bird) or D (the list); keeps the image with no power
+        e-paper: shows screen A (the bird) or D (today: weather); keeps the image with no power
 ```
 
 The device **sleeps almost all the time**. It wakes every 20 minutes, changes the bird, updates the clock,
@@ -27,7 +27,7 @@ wakes it at any time. Nothing runs on the Pi for the display.
 | Moment | What it does | Typical cost |
 |---|---|---|
 | Every 20-minute wake | **no Wi-Fi**: next bird from memory, clock, sensor, battery, redraw | about 3 s awake |
-| Once an hour, about 10 minutes past | connect, ask GitHub whether `data.json` changed (ETag), download and parse it if it did (it usually has, the site exports hourly), disconnect | about 8-10 s |
+| Once an hour, about 10 minutes past | connect, ask GitHub whether `data.json` changed (ETag), download and parse it if it did (it usually has, the site exports hourly), then ask Open-Meteo for today's forecast (about 2.5 KB), disconnect | about 9-11 s |
 | Once a day | piggybacks on that connection to set the clock (NTP, Israel time zone) | +1 s |
 | PWR held 1.5 s | the same fetch, on demand | |
 | BOOT held 1.5 s (sound) | connects, streams the bird's MP3 from GitHub Pages, plays it; Wi-Fi stays on a short while so the next press is quick | about 12 s to the first sound |
@@ -48,19 +48,19 @@ remembers the channel and access point of the last connection, which skips the s
 | Memory | Holds | Survives |
 |---|---|---|
 | **Flash, 8 MB** | firmware (about 1.2 MB); the **bird pack** (161 cards, 525 KB: each has the cut-out photo and the Hebrew and English names); phrases, digit fonts and icons are compiled in | everything, including power loss |
-| **RTC memory** (a few KB, kept in deep sleep) | the **newest 10 confident birds** (scientific and English name, badges, last heard, count this week), which screen and which bird are shown, the last good temperature/humidity, the data `ETag`, Wi-Fi channel and access point, the time of the last clock sync | deep sleep (not a full power loss) |
+| **RTC memory** (a few KB, kept in deep sleep) | the **newest 10 shown birds** (scientific and English name, badges, last heard, count this week), **today's forecast** (24 hourly temperatures, rain chances and weather pictures), which screen and which bird are shown, the last good temperature/humidity, the data `ETag`, Wi-Fi channel and access point, the time of the last clock sync | deep sleep (not a full power loss) |
 | **Internal RAM, about 330 KB** | working memory: the JSON parse (the 249 KB file is filtered while it streams in, so only about 10 KB of it is kept), the TLS connection (about 110 KB peak), one card at a time | nothing (rebuilt each wake) |
 | **PSRAM, 8 MB** | only a 160 KB buffer while a bird sound plays, then freed | nothing |
 | **Clock chip (PCF85063)** | the time of day | as long as it has power |
 
-Only the **newest 10 birds that the site is confident about** are kept (anything with the
-"Low confidence" badge is skipped, same as the website's "Confident" filter). Photos never travel over
-Wi-Fi: they are in flash. A species heard after the pack was built shows its English name only, until
-the pack is rebuilt and uploaded.
+Only the **newest 10 birds that may be shown** are kept. A bird may be shown when the site is confident about
+it (no "Low confidence" badge, same as the website's "Confident" filter), it has a Hebrew name, and the pack
+has its card (which needs a photo). A bird heard after the pack was built, or one with no Hebrew name yet,
+is simply not shown until the pack is rebuilt and uploaded. Photos never travel over Wi-Fi: they are in flash.
 
 ## What is polled again and again
 
-- Once an hour: `data.json` with `If-None-Match`. When nothing changed GitHub answers 304 with no body
+- Once an hour: the forecast from Open-Meteo, and `data.json` with `If-None-Match`. When nothing changed GitHub answers 304 with no body
   (seen on the device itself and with `curl`: 0 bytes in 0.2 s, against 249 KB for a full download).
 - Every 20 minutes, with no radio: the temperature/humidity sensor (retried once if a read fails), the
   battery voltage, the clock chip.
@@ -112,9 +112,18 @@ The board has a microSD slot (not used yet).
 - **Cards for new species:** the device could fetch and cache them.
 - Costs to check: a card draws a little current even when idle, which matters while asleep.
 
-## Screens and the idea for the list screen
+## Screens
 
-Screen A shows the bird (photo, names, how often this week, when). Screen D lists the newest birds.
-The site's `news.json` (247 bytes) is small and has ready-made items such as "New bird! First time
-ever" and "Welcome back! Back after 64 days away": a good fit for a replacement screen; see the
-options in the project notes.
+**A, the bird:** the photo, Hebrew and English name, "heard 17 times this week", badges, "7 minutes ago".
+
+**D, today:** the weekday and date in Hebrew (for example "יום ו׳, 23 באוקטובר"), a picture of the weather (sunny,
+partly cloudy, cloudy, rain, storm, haze, wind, clear night) with the day's highest and lowest temperature, a
+graph of today's temperature by hour with the chance of rain as small bars and a marker at the current hour, and a
+dotted box left free for daily notes (nothing writes into it yet). The forecast comes from
+[Open-Meteo](https://open-meteo.com) (free, no key) for the station's location rounded to 0.05 degrees (about
+5 km), fetched with the hourly Wi-Fi session. If the stored forecast is not for today (no Wi-Fi for a long time),
+the picture and graph are left out and only the date and the notes box show. The top bar of both screens shows
+the indoor temperature and humidity from the board's own sensor, a plug or battery symbol, and the clock.
+
+BOOT (short) switches between A and D. The earlier "newest 10" list screen was replaced by D. A mockup of a
+possible news screen (new bird, welcome back) is kept for later: see `BACKLOG.md` and `mockups/news-3.png`.

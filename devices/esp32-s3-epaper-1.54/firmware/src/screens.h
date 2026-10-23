@@ -182,61 +182,134 @@ void drawBird(G& g, const Card* card, const logic::Bird& b, time_t now, const En
   }
 }
 
-// -------------------------------------------------------------- screen D
+// ------------------------------------------------------- screen D: today (weather)
 
-// Screen D shows only the latest kListRows birds, in large type (the Hebrew name is the
-// big strip from the card, the time uses the CLOCK digits). A name too wide for the row
-// falls back to the small strip. The bird on screen A is highlighted when it is in the list.
-constexpr int kListRows = 5;
-constexpr int kListY = 42, kListRowH = 31;
+// "27 / 17" (highest / lowest of the day), in the top bar's digits.
+template <class G>
+void drawHiLo(G& g, int hi, int lo, int x, int yc) {
+  char a[8], b[8];
+  snprintf(a, sizeof a, "%do", hi);
+  snprintf(b, sizeof b, "%do", lo);
+  drawText(g, ui::BAR, a, x, yc, kBlack);
+  x += textWidth(ui::BAR, a) + 3;
+  drawText(g, ui::BAR, "/", x, yc, kBlack);
+  x += textWidth(ui::BAR, "/") + 3;
+  drawText(g, ui::BAR, b, x, yc, kBlack);
+}
 
-// `load(sci, card)` fills `card` for a species, valid until the next call; false = not in the pack.
-template <class G, class Loader>
-void drawList(G& g, const logic::Bird* top, int n, int sel, const Env& e, Loader load) {
+// Temperature curve over 0..24 h with rain-chance bars, the day's highest and lowest, and a marker
+// at the current time (`nowTenths` = hours x 10). Mirrors tools/mockup_weather.py.
+template <class G>
+void drawGraph(G& g, const logic::WeatherDay& w, int nowTenths, int x0, int y0, int x1, int y1) {
+  int lo = w.temp[0], hi = w.temp[0], iLo = 0, iHi = 0;
+  for (int i = 1; i < 24; i++) {
+    if (w.temp[i] < lo) { lo = w.temp[i]; iLo = i; }
+    if (w.temp[i] > hi) { hi = w.temp[i]; iHi = i; }
+  }
+  const int tlo = lo - 2, thi = hi + 2;
+  const int top = y0 + 12, bot = y1 - 12, base = y1 - 10;
+  auto X = [&](int tenths) { return x0 + (x1 - x0) * tenths / 240; };
+  auto Y = [&](int t) { return bot - (bot - top) * (t - tlo) / (thi - tlo); };
+
+  g.drawFastHLine(x0, base, x1 - x0 + 1, kBlack);
+  static const int marks[5] = {0, 6, 12, 18, 24};
+  for (int m : marks) {  // hour marks; the end ones are aligned inward so they are not cut off
+    const int x = X(m * 10);
+    g.drawFastVLine(x, base, 3, kBlack);
+    char b[4];
+    snprintf(b, sizeof b, "%d", m);
+    const int tw = textWidth(ui::TINY, b);
+    drawText(g, ui::TINY, b, m == 0 ? x : (m == 24 ? x - tw : x - tw / 2), y1 - 3, kBlack);
+  }
+  for (int i = 0; i < 24; i++) {  // rain chance, 12 px at 100 %
+    const int hgt = (12 * w.rain[i] + 50) / 100;
+    if (hgt > 0) {
+      int bw = X(i * 10 + 10) - X(i * 10) - 2;
+      g.fillRect(X(i * 10) + 1, base - hgt, bw > 1 ? bw : 1, hgt, kBlack);
+    }
+  }
+  int px[24], py[24];
+  for (int i = 0; i < 24; i++) {
+    px[i] = X(i * 10 + 5);
+    py[i] = Y(w.temp[i]);
+  }
+  for (int i = 0; i < 23; i++) {  // light shading under the curve: a quarter of the dots
+    for (int x = px[i]; x < px[i + 1]; x++) {
+      if (x % 2) continue;
+      const int yc = py[i] + (py[i + 1] - py[i]) * (x - px[i]) / (px[i + 1] - px[i]);
+      for (int yy = yc + 2; yy <= bot; yy++)
+        if (yy % 2 == 0) g.drawPixel(x, yy, kBlack);
+    }
+  }
+  for (int i = 0; i < 23; i++) {  // the curve, 2 px thick
+    g.drawLine(px[i], py[i], px[i + 1], py[i + 1], kBlack);
+    g.drawLine(px[i], py[i] + 1, px[i + 1], py[i + 1] + 1, kBlack);
+  }
+  char t[8];
+  snprintf(t, sizeof t, "%do", hi);
+  drawText(g, ui::TINY, t, px[iHi] - textWidth(ui::TINY, t) / 2, py[iHi] - 3 - ui::TINY.h / 2, kBlack);
+  snprintf(t, sizeof t, "%do", lo);
+  drawText(g, ui::TINY, t, px[iLo] - textWidth(ui::TINY, t) / 2, py[iLo] - 3 - ui::TINY.h / 2, kBlack);
+  if (nowTenths < 0) nowTenths = 0;
+  if (nowTenths > 239) nowTenths = 239;
+  const int xn = X(nowTenths), yn = Y(w.temp[nowTenths / 10]);
+  for (int yy = top - 2; yy < base; yy += 4) g.drawFastVLine(xn, yy, 2, kBlack);  // dashed "now" line
+  g.fillRect(xn - 3, yn - 3, 7, 7, kBlack);  // and a ringed dot on the curve
+  g.fillRect(xn - 1, yn - 1, 3, 3, kWhite);
+}
+
+// A dotted frame left free for daily notes: a label and three ruled lines (nothing is written in it yet).
+template <class G>
+void drawNotes(G& g) {
+  const int x0 = 6, y0 = 138, x1 = W - 6, y1 = 196;
+  for (int x = x0; x <= x1; x += 4) {
+    g.drawPixel(x, y0, kBlack);
+    g.drawPixel(x, y1, kBlack);
+  }
+  for (int y = y0; y <= y1; y += 4) {
+    g.drawPixel(x0, y, kBlack);
+    g.drawPixel(x1, y, kBlack);
+  }
+  drawStrip(g, ui::NOTES_LABEL, x1 - 5 - ui::NOTES_LABEL.w, y0 + 9 - ui::NOTES_LABEL.h / 2, kBlack);
+  for (int k = 0; k < 3; k++)
+    for (int x = x0 + 8; x < x1 - 7; x += 3) g.drawPixel(x, y0 + 27 + 13 * k, kBlack);
+}
+
+// Screen D: today. Weekday and date (Hebrew), the weather picture and highest/lowest, today's
+// temperature graph, and the notes box. `now` is the local time. Without a clock there is no date and
+// no graph; a forecast of another day is not shown (the next hourly fetch brings today's).
+template <class G>
+void drawWeather(G& g, const logic::WeatherDay& w, const Env& e, const tm& now) {
   g.fillScreen(kWhite);
   topBar(g, e);
-  drawStrip(g, ui::TITLE_LIST, (W - ui::TITLE_LIST.w) / 2, 23, kBlack);
-  const int rows = n < kListRows ? n : kListRows;
-  // The window follows the selection: beyond the first page the list scrolls so the
-  // selected bird is the last row.
-  const int start = sel >= rows ? sel - rows + 1 : 0;
-  for (int r = 0; r < rows; r++) {
-    const int k = start + r;
-    const int y = kListY + r * kListRowH;
-    uint16_t ink = kBlack;
-    if (k == sel) {
-      g.fillRect(0, y, W, kListRowH - 1, kBlack);
-      ink = kWhite;
-    }
-    struct tm lt;
-    time_t seen = (time_t)top[k].seen;
-    localtime_r(&seen, &lt);
-    char t[8];
-    snprintf(t, sizeof t, "%02d:%02d", lt.tm_hour, lt.tm_min);
-    const int tw = textWidth(ui::CLOCK, t);
-    drawText(g, ui::CLOCK, t, 4, y + (kListRowH - 1) / 2, ink);
-
-    Card c;
-    if (load(top[k].sci, c)) {
-      const int room = W - 4 - (4 + tw + 6);  // between the time and the right edge
-      if (c.heBigW <= room) {
-        g.drawBitmap(W - 4 - c.heBigW, y + (kListRowH - 1 - kHeBigH) / 2, c.heBig, c.heBigW, kHeBigH, ink);
-      } else {
-        g.drawBitmap(W - 4 - c.heSmallW, y + (kListRowH - 1 - kHeSmallH) / 2, c.heSmall, c.heSmallW, kHeSmallH, ink);
-      }
-    }
-#ifdef ARDUINO
-    else {
-      g.setFont(&FreeSansBold9pt7b);
-      g.setTextColor(ink);
-      int16_t x1, y1;
-      uint16_t w, h;
-      g.getTextBounds(top[k].name, 0, 0, &x1, &y1, &w, &h);
-      g.setCursor(W - 4 - (int)w - x1, y + 20);
-      g.print(top[k].name);
-    }
-#endif
+  if (e.clockOk) {
+    const Strip& wd = *ui::WEEKDAY[now.tm_wday % 7];
+    drawStrip(g, wd, W - 5 - wd.w, 36 - wd.h / 2, kBlack);
+    char n[4];
+    snprintf(n, sizeof n, "%d", now.tm_mday);
+    const int nw = textWidth(ui::WEEK, n);
+    drawText(g, ui::WEEK, n, W - 5 - nw, 56, kBlack);  // right to left: the number, then the month
+    const Strip& mo = *ui::MONTH[now.tm_mon % 12];
+    drawStrip(g, mo, W - 5 - nw - 4 - mo.w, 56 - mo.h / 2, kBlack);
   }
+  const uint32_t today = (uint32_t)((now.tm_year + 1900) * 10000 + (now.tm_mon + 1) * 100 + now.tm_mday);
+  const bool have = e.clockOk && w.ymd != 0 && w.ymd == today;
+  if (have) {
+    const int hour = now.tm_hour % 24;
+    const uint8_t kind = w.kind[hour] < 8 ? w.kind[hour] : 2;
+    g.drawBitmap(4, 23, ui::WEATHER_ICON[kind], 44, 44, kBlack);
+    int hi = w.temp[0], lo = w.temp[0];
+    for (int i = 1; i < 24; i++) {
+      if (w.temp[i] > hi) hi = w.temp[i];
+      if (w.temp[i] < lo) lo = w.temp[i];
+    }
+    drawHiLo(g, hi, lo, 52, 36);
+    const Strip& c = *ui::COND[kind];
+    drawStrip(g, c, 52, 55 - c.h / 2, kBlack);
+  }
+  g.drawFastHLine(6, 70, W - 12, kBlack);
+  if (have) drawGraph(g, w, now.tm_hour * 10 + now.tm_min / 6, 10, 74, W - 8, 134);
+  drawNotes(g);
 }
 
 }  // namespace screens

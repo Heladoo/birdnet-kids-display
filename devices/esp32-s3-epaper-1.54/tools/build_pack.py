@@ -47,6 +47,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageOps
 
 from epaper_image import cut_out, to_1bit, to_gray, to_gray_cutout
+from mockup_weather import CONDITION, icon as weather_icon
 from mockups import ICONS, W, font, text
 
 HERE = Path(__file__).resolve().parent
@@ -193,10 +194,10 @@ def build_card(sp, photo_img, focus, cutout=None, proc=None):
 def collect_species(data_path, expert_path):
     sp = {}
     for b in json.load(open(expert_path, encoding="utf-8")):
-        sp[b["sci"]] = {"sci": b["sci"], "en": b["com"], "he": b["he"] or b["com"], "image": None}
+        sp[b["sci"]] = {"sci": b["sci"], "en": b["com"], "he": b["he"], "image": None}
     for b in json.load(open(data_path, encoding="utf-8")):  # data.json wins: it has the photo URL
-        # a newly detected species may not have its Hebrew name yet: the English one stands in
-        sp[b["sci"]] = {"sci": b["sci"], "en": b["name"], "he": b["he_name"] or b["name"], "image": b.get("image")}
+        # a newly detected species may not have its Hebrew name yet: it then gets no card (not shown)
+        sp[b["sci"]] = {"sci": b["sci"], "en": b["name"], "he": b["he_name"], "image": b.get("image")}
     return sorted(sp.values(), key=lambda s: s["sci"])
 
 
@@ -217,17 +218,16 @@ def contact_sheet(items, path):
 
 # ---------------------------------------------------------------- ui assets
 
-CHARSET = "0123456789:%-o"  # 'o' draws the degree sign
+CHARSET = "0123456789:%-o/"  # 'o' draws the degree sign
 DIGIT_FONTS = [  # name, size, bold, cell height
     ("BAR", 15, True, 18),    # temperature and humidity in the top bar
     ("CLOCK", 17, True, 20),  # HH:MM in the top bar
     ("WEEK", 13, True, 16),   # "heard N times this week"
     ("AGO", 12, True, 14),    # "N min ago"
-    ("LIST", 12, False, 14),  # times in the latest-10 list
+    ("TINY", 12, False, 14),  # hour marks and min/max labels of the weather graph
 ]
 # (name, text, size, bold, height). Digits are drawn live between the pieces.
 PHRASES = [
-    ("TITLE_LIST", "10 הציפורים האחרונות", 13, True, 16),
     ("HEARD_PRE", "נשמע", 13, True, 16),
     ("HEARD_POST", "פעמים השבוע", 13, True, 16),
     ("HEARD_ONCE", "נשמע פעם אחת השבוע", 13, True, 16),
@@ -239,6 +239,14 @@ PHRASES = [
     ("AGO_HOUR", "לפני שעה", 12, True, 14),
     ("AGO_DAY", "אתמול", 12, True, 14),
 ]
+WEEKDAYS = ["יום א׳", "יום ב׳", "יום ג׳", "יום ד׳", "יום ה׳", "יום ו׳", "יום ש׳"]  # Sunday first (tm_wday)
+MONTHS = ["בינואר", "בפברואר", "במרץ", "באפריל", "במאי", "ביוני", "ביולי", "באוגוסט", "בספטמבר", "באוקטובר",
+          "בנובמבר", "בדצמבר"]  # with the "in" prefix: "23 באוקטובר"
+WEATHER_KINDS = list(CONDITION)  # sunny, partly, cloudy, rain, storm, fog, wind, night: the order of logic.h
+PHRASES += [(f"WD_{i}", t, 23, True, 28) for i, t in enumerate(WEEKDAYS)]
+PHRASES += [(f"MON_{i}", t, 13, False, 16) for i, t in enumerate(MONTHS)]
+PHRASES += [(f"COND_{i}", CONDITION[k], 11, False, 14) for i, k in enumerate(WEATHER_KINDS)]
+PHRASES += [("NOTES_LABEL", "הערות", 11, True, 14)]
 ICON_ORDER = ["Migrant", "Resident", "Raptor", "Nocturnal", "Waterbird", "Rare",
               "Dawn Caller", "Low confidence", "thermo", "drop"]
 
@@ -268,6 +276,16 @@ def ui_assets_header():
     for name, s, size, bold, h in PHRASES:
         img = clamp_w(render_strip(s, font(size, bold), h, rtl=True))
         out.append(f"static const Strip {name} = {{{img.width}, {h}, b_{name}}};")
+    out.append("}  // namespace ui\n")
+    # weather pictures: 44x44, 6 bytes per row; the arrays that index the strips by weekday, month, kind
+    for i, k in enumerate(WEATHER_KINDS):
+        out.append(c_bytes(f"w_{i}", pack_bits(weather_icon(k, 44))))
+    nk = len(WEATHER_KINDS)
+    out.append("namespace ui {")
+    out.append("static const uint8_t* const WEATHER_ICON[%d] = {%s};" % (nk, ", ".join(f"w_{i}" for i in range(nk))))
+    out.append("static const Strip* const WEEKDAY[7] = {%s};" % ", ".join(f"&WD_{i}" for i in range(7)))
+    out.append("static const Strip* const MONTH[12] = {%s};" % ", ".join(f"&MON_{i}" for i in range(12)))
+    out.append("static const Strip* const COND[%d] = {%s};" % (nk, ", ".join(f"&COND_{i}" for i in range(nk))))
     out.append("}  // namespace ui\n")
     # digit fonts
     for fname, size, bold, h in DIGIT_FONTS:
@@ -339,6 +357,12 @@ def main():
         cutout = None
         if img is not None and use_cut and (recut or not (cache / "cut" / f"{slug(sp['sci'])}.failed").exists()):
             cutout = get_cutout(img, slug(sp["sci"]), cache, recut, src)
+        if not sp["he"] or img is None:  # no Hebrew name or no photo: no card, so the display never shows it
+            (cards / f"{slug(sp['sci'])}.bin").unlink(missing_ok=True)
+            why = "no Hebrew name" if not sp["he"] else "no photo"
+            report.append(f"SKIPPED  {sp['sci']:<32} {why}")
+            print(f"[{i}/{len(species)}] {sp['sci']}: skipped ({why})", file=sys.stderr)
+            continue
         blob, panel = build_card(sp, img, focus, cutout, processing.get(sp["sci"]))
         (cards / f"{slug(sp['sci'])}.bin").write_bytes(blob)
         total += len(blob)
@@ -347,8 +371,8 @@ def main():
         report.append(f"{'ok ' if ok else 'MISSING'}  {sp['sci']:<32} {len(blob):5d} B  {src}")
         print(f"[{i}/{len(species)}] {sp['sci']}: {src}", file=sys.stderr)
     contact_sheet(sheet, out / "contact.png")
-    missing = sum(1 for r in report if r.startswith("MISSING"))
-    summary = f"{len(species)} cards, {total / 1024:.0f} KB, {missing} without a photo"
+    skipped = sum(1 for r in report if r.startswith("SKIPPED"))
+    summary = f"{len(species) - skipped} cards, {total / 1024:.0f} KB, {skipped} skipped (no photo or no Hebrew name)"
     (out / "report.txt").write_text(summary + "\n" + "\n".join(report) + "\n", encoding="utf-8")
     print(summary)
 

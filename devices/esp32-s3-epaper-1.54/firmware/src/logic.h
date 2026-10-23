@@ -84,6 +84,26 @@ inline int nextIndex(const Bird* oldTop, int oldN, const Bird* newTop, int newN,
   return advance ? (oldIdx + 1) % newN : oldIdx;
 }
 
+// ---- today's weather (the "Today" screen). Source: Open-Meteo hourly forecast for the station.
+// The picture kinds are in the order of the generated assets (tools/build_pack.py WEATHER_KINDS).
+enum : uint8_t { kSunny, kPartly, kCloudy, kRain, kStorm, kFog, kWind, kNight };
+struct WeatherDay {
+  uint32_t ymd;      // yyyymmdd (local) of the forecast day; 0 = no forecast yet
+  int8_t temp[24];   // temperature per hour, degrees C
+  uint8_t rain[24];  // chance of rain per hour, %
+  uint8_t kind[24];  // weather picture per hour
+};
+// WMO weather code (as Open-Meteo gives it) to a picture. Snow and anything unusual shows as cloudy.
+inline uint8_t weatherKind(int wmo, bool isDay) {
+  if (wmo == 0 || wmo == 1) return isDay ? kSunny : kNight;
+  if (wmo == 2) return isDay ? kPartly : kCloudy;
+  if (wmo == 3) return kCloudy;
+  if (wmo == 45 || wmo == 48) return kFog;
+  if (wmo >= 95) return kStorm;
+  if ((wmo >= 51 && wmo <= 67) || (wmo >= 80 && wmo <= 82)) return kRain;
+  return kCloudy;
+}
+
 // Is it time to go to the site for new birds? Once per slot (an hour), once the slot is `offsetS`
 // old (the site exports at the start of the hour). The hour is counted in UTC, which lines up with
 // local hours for whole-hour time zones such as Israel's. Without a clock there is no way to tell, so

@@ -133,8 +133,26 @@ int main(int argc, char** argv) {
   CHECK(loader(top[0].sci, card), "card again");
   screens::drawBird(g, &card, top[0], now, env);
   CHECK(g.writePbm((out + "/a-bird.pbm").c_str()), "write A");
-  screens::drawList(g, top, n, 0, env, loader);
-  CHECK(g.writePbm((out + "/d-top10-list.pbm").c_str()), "write D");
+  // screen D, today's weather, from a synthetic forecast (a partly cloudy day with an evening shower)
+  CHECK(logic::weatherKind(0, true) == logic::kSunny && logic::weatherKind(0, false) == logic::kNight &&
+        logic::weatherKind(2, true) == logic::kPartly && logic::weatherKind(3, true) == logic::kCloudy &&
+        logic::weatherKind(63, true) == logic::kRain && logic::weatherKind(95, true) == logic::kStorm &&
+        logic::weatherKind(45, true) == logic::kFog && logic::weatherKind(71, true) == logic::kCloudy, "weather kinds");
+  logic::WeatherDay wd = {};
+  static const int8_t kT[24] = {19, 18, 18, 17, 17, 17, 18, 19, 21, 23, 25, 26, 27, 27, 27, 26, 25, 23, 22, 21, 20, 20, 19, 19};
+  for (int i = 0; i < 24; i++) {
+    wd.temp[i] = kT[i];
+    wd.rain[i] = i >= 18 && i < 23 ? 10 * (i - 17) : 0;
+    wd.kind[i] = logic::kPartly;
+  }
+  wd.ymd = 20261023;
+  tm lt = {};
+  lt.tm_year = 126; lt.tm_mon = 9; lt.tm_mday = 23; lt.tm_wday = 5; lt.tm_hour = 14; lt.tm_min = 20;
+  screens::drawWeather(g, wd, env, lt);
+  CHECK(g.writePbm((out + "/d-weather.pbm").c_str()), "write D");
+  wd.ymd = 20261022;  // yesterday's forecast: no picture and no graph, only the date and the notes box
+  screens::drawWeather(g, wd, env, lt);
+  CHECK(g.writePbm((out + "/d-weather-stale.pbm").c_str()), "write D stale");
   // sensor/clock missing, "many" and "once" phrases, an hours-ago and a day-ago line
   env.sensorOk = false; env.clockOk = false;
   logic::Bird odd = top[1];

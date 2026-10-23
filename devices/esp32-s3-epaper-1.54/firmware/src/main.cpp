@@ -97,6 +97,7 @@ struct RtcState {
   uint8_t skipWakes;        // wakes to wait before trying again after a failed fetch
   char etag[72];
   logic::Bird top[logic::kTop];
+  logic::WeatherDay weather;  // today's forecast, refreshed with the hourly fetch
 };
 RTC_DATA_ATTR static RtcState st;
 
@@ -342,6 +343,15 @@ struct PatientReader {
   }
 };
 
+// A species is shown only if the pack has its card (photo and Hebrew name; build_pack.py makes none
+// for a species without either).
+static bool cardExists(const char* sci) {
+  char slug[40], path[64];
+  logic::slugOf(sci, slug, sizeof slug);
+  snprintf(path, sizeof path, "/cards/%s.bin", slug);
+  return LittleFS.exists(path);
+}
+
 enum class Fetch { Failed, Same, Updated };
 
 // GET data.json (~250 KB), keeping only what the screens need, and build the latest 10.
@@ -371,6 +381,7 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
 
   JsonDocument filter;
   filter[0]["sci"] = true;
+  filter[0]["he_name"] = true;
   filter[0]["name"] = true;
   filter[0]["last_seen"] = true;
   filter[0]["week_count"] = true;
@@ -387,6 +398,8 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
     logic::Bird b = {};
     time_t seen;
     if (!logic::parseLocal(o["last_seen"] | "", &seen)) { LOG("fetch: bad last_seen '%s'\n", (const char*)(o["last_seen"] | "")); continue; }
+    const char* he = o["he_name"] | "";
+    if (!he[0] || !cardExists(o["sci"] | "")) continue;  // no Hebrew name or no card (photo): not shown
     logic::copyStr(b.sci, sizeof b.sci, o["sci"] | "");
     logic::copyStr(b.name, sizeof b.name, o["name"] | "");
     b.seen = (uint32_t)seen;
@@ -406,6 +419,58 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
   if (n == 0) return Fetch::Failed;
   logic::copyStr(st.etag, sizeof st.etag, etag.c_str());
   return Fetch::Updated;
+}
+
+// Today's forecast from Open-Meteo for the station (Dorot, coordinates rounded to 0.05 degrees, about 5 km):
+// hourly temperature, rain chance, weather code and day/night for the local day, about 2.5 KB. Free, no key.
+static const char* kWeatherUrl =
+    "https://api.open-meteo.com/v1/forecast?latitude=31.50&longitude=34.65"
+    "&hourly=temperature_2m,precipitation_probability,weather_code,is_day&timezone=Asia%2FJerusalem&forecast_days=1";
+
+static bool fetchWeather() {
+  WiFiClientSecure client;
+  client.setInsecure();  // public forecast, only drawn
+  HTTPClient http;
+  http.useHTTP10(true);
+  http.setTimeout(10000);
+  if (!http.begin(client, kWeatherUrl)) return false;
+  int code = http.GET();
+  if (code != 200) {
+    LOG("weather: HTTP %d\n", code);
+    http.end();
+    return false;
+  }
+  JsonDocument filter;
+  filter["hourly"]["time"][0] = true;
+  filter["hourly"]["temperature_2m"][0] = true;
+  filter["hourly"]["precipitation_probability"][0] = true;
+  filter["hourly"]["weather_code"][0] = true;
+  filter["hourly"]["is_day"][0] = true;
+  JsonDocument doc;
+  PatientReader reader{http.getStreamPtr()};
+  DeserializationError err = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+  http.end();
+  if (err) {
+    LOG("weather: parse %s\n", err.c_str());
+    return false;
+  }
+  JsonObject h = doc["hourly"];
+  JsonArray times = h["time"], temps = h["temperature_2m"], rain = h["precipitation_probability"],
+            codes = h["weather_code"], day = h["is_day"];
+  if (times.size() < 24 || temps.size() < 24 || codes.size() < 24) return false;
+  int y = 0, mo = 0, d = 0;
+  if (sscanf(times[0] | "", "%d-%d-%d", &y, &mo, &d) != 3) return false;
+  logic::WeatherDay nw = {};
+  nw.ymd = (uint32_t)(y * 10000 + mo * 100 + d);
+  for (int i = 0; i < 24; i++) {
+    nw.temp[i] = (int8_t)lroundf(temps[i].as<float>());
+    int rp = rain.size() > (size_t)i ? (rain[i] | 0) : 0;
+    nw.rain[i] = (uint8_t)(rp < 0 ? 0 : rp > 100 ? 100 : rp);
+    nw.kind[i] = logic::weatherKind(codes[i] | 0, (day[i] | 1) != 0);
+  }
+  st.weather = nw;
+  LOG("weather: %u, %d to %d C\n", (unsigned)nw.ymd, (int)nw.temp[3], (int)nw.temp[14]);
+  return true;
 }
 
 static void nextBird() { st.idx = st.n ? (st.idx + 1) % st.n : 0; }
@@ -437,6 +502,7 @@ static void refreshData(bool advance, bool fetch = true) {
       st.idx = logic::nextIndex(st.top, st.n, st.top, st.n, st.idx, advance);
       ok = true;
     }
+    fetchWeather();  // the same Wi-Fi session; a failure keeps the previous forecast
     wifiDown();
   }
   if (ok) {
@@ -492,16 +558,16 @@ static void render() {
   display.setFullWindow();
   display.firstPage();
   do {
-    if (st.n == 0) {
+    if (st.screen == 1) {
+      screens::drawWeather(display, st.weather, env, lt);
+    } else if (st.n == 0) {
       display.fillScreen(GxEPD_WHITE);
       screens::topBar(display, env);
-    } else if (st.screen == 0) {
+    } else {
       screens::Card card;
       const logic::Bird& b = st.top[st.idx < st.n ? st.idx : 0];
       bool have = loadCard(b.sci, card);
       screens::drawBird(display, have ? &card : nullptr, b, now, env);
-    } else {
-      screens::drawList(display, st.top, st.n, st.idx, env, loadCard);
     }
   } while (display.nextPage());
   display.hibernate();
@@ -623,6 +689,35 @@ static void holdPinsForSleep() {
   gpio_deep_sleep_hold_en();
 }
 
+#ifdef CLIP_LOG
+// Debug aid (builds with CLIP_LOG, while a PC is on USB): serial 'd' or 'a' draws screen D or A with the
+// real screen code into a RAM canvas and sends it as hex lines between SCREEN-BEGIN and SCREEN-END;
+// tools/dump_screen.py turns that into a PNG. It tests the device's own drawing, not a PC copy of it.
+static void dumpScreen(int which) {
+  GFXcanvas1 cv(200, 200);
+  time_t now = time(nullptr);
+  tm lt;
+  localtime_r(&now, &lt);
+  env.hh = lt.tm_hour;
+  env.mm = lt.tm_min;
+  if (which == 1) {
+    screens::drawWeather(cv, st.weather, env, lt);
+  } else if (st.n > 0) {
+    screens::Card card;
+    const logic::Bird& b = st.top[st.idx < st.n ? st.idx : 0];
+    bool have = loadCard(b.sci, card);
+    screens::drawBird(cv, have ? &card : nullptr, b, now, env);
+  }
+  Serial.println("SCREEN-BEGIN");
+  const uint8_t* p = cv.getBuffer();
+  for (int y = 0; y < 200; y++) {
+    for (int x = 0; x < 25; x++) Serial.printf("%02x", p[y * 25 + x]);
+    Serial.println();
+  }
+  Serial.println("SCREEN-END");
+}
+#endif
+
 // A PC on the USB port sends a start-of-frame packet every millisecond; a charger does not.
 // Deep sleep switches the USB port off (Windows sees an unplug), so with a PC attached the
 // device stays awake instead: buttons answer at once and nothing disconnects.
@@ -642,6 +737,18 @@ static void stayAwakeOnUsb() {
       wifiDown();
       wifiHeldSince = 0;
     }
+#ifdef CLIP_LOG
+    while (Serial.available()) {
+      int ch = Serial.read();
+      if (ch == 'd') dumpScreen(1);
+      if (ch == 'a') dumpScreen(0);
+      if (ch == 'f') refreshData(false, true);  // go to the site now (bird list and forecast)
+      if (ch == 'F') {                          // the same, ignoring the ETag: always a full download
+        st.etag[0] = 0;
+        refreshData(false, true);
+      }
+    }
+#endif
     bool boot = pressed(PIN_BTN_BOOT), pwr = pressed(PIN_BTN_PWR);
     if (boot || pwr) {
       uint32_t t0 = millis();

@@ -15,5 +15,15 @@ Raw URL used by the firmware: `https://raw.githubusercontent.com/Heladoo/Birdnet
 
 The badge named `Low confidence` (icon ❓) in `badges[]` marks a species the site is unsure about; the website's "Confident" filter hides those, and so do the displays (never show or play them).
 
+A bird is shown on a display only if it is not marked "Low confidence", `he_name` is not empty, and the pack has its
+card (which needs a photo from `image`).
+
+## Not from the site: the weather
+
+The Today screen uses one other service, once an hour: Open-Meteo's forecast API
+(`https://api.open-meteo.com/v1/forecast`, hourly `temperature_2m`, `precipitation_probability`, `weather_code`,
+`is_day`, one day, time zone Asia/Jerusalem) for the station's location rounded to 0.05 degrees (31.50, 34.65 for
+Dorot). WMO weather codes map to eight pictures in `logic::weatherKind`.
+
 `<sci_slug>` is the scientific name lowercased, runs of non-alphanumerics replaced by `_`
 (`Motacilla alba` becomes `motacilla_alba`).

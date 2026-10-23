@@ -17,6 +17,19 @@ struct MockGfx {
       for (int i = 0; i < w; i++) set(x + i, y + j, c);
   }
   void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c) { fillRect(x, y, w, 1, c); }
+  void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t c) { fillRect(x, y, 1, h, c); }
+  void drawPixel(int16_t x, int16_t y, uint16_t c) { set(x, y, c); }
+  void drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t c) {  // Bresenham
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y0 - y1 : y1 - y0;
+    int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+    for (;;) {
+      set(x0, y0, c);
+      if (x0 == x1 && y0 == y1) break;
+      int e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
   // Same contract as Adafruit_GFX::drawBitmap: only the set bits are drawn, in `c`.
   void drawBitmap(int16_t x, int16_t y, const uint8_t* bm, int16_t w, int16_t h, uint16_t c) {
     int rb = (w + 7) / 8;

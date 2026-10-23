@@ -66,6 +66,8 @@ What the review showed: birds on a soft background (most Wikimedia lead photos) 
 
 ## 5. Screens
 
+*Update 2026-10-23: screen D is no longer the list of ten birds; it is the "Today" weather screen (see `HOW_IT_WORKS.md`). The text below is the original plan.*
+
 All screens share the top row: thermometer °C, droplet %RH, and HH:MM on the right.
 
 **A: the bird** (render with `tools/mockups.py --photo …`; not committed, because the sample photo's license is unknown)

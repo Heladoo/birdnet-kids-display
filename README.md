@@ -21,10 +21,13 @@ Each device is a self-contained folder with its firmware, tools and notes.
 - **The bird screen:** cut-out photo, Hebrew name and English name, "heard 17 times this week", badges
   (resident, migrant, raptor, ...), "7 minutes ago", and a top bar with temperature, humidity, a plug or
   battery symbol and the time.
-- **Only confident birds:** species the site marks "Low confidence" are never shown.
+- **The today screen:** weekday and date in Hebrew, a weather picture with the day's highest and lowest,
+  today's temperature graph with the chance of rain, and a box left free for daily notes.
+- **Only confident, complete birds:** species the site marks "Low confidence", and species with no photo or
+  Hebrew name yet, are never shown.
 - **Buttons:** BOOT short = other screen; BOOT held = play the bird's song (the green LED blinks);
   PWR short = next bird; PWR held = refresh now. The bird also changes by itself every 20 minutes.
-- **Sleeps almost all the time**, waking every few minutes. Details, memory use, Wi-Fi behaviour,
+- **Sleeps almost all the time**, waking every 20 minutes and using Wi-Fi once an hour. Details, memory use, Wi-Fi behaviour,
   offline behaviour and battery estimates: [`HOW_IT_WORKS.md`](devices/esp32-s3-epaper-1.54/HOW_IT_WORKS.md).
 
 A mockup of a planned "news" screen (new bird, welcome back), not built yet:
@@ -60,9 +63,11 @@ segmentation model. More notes (flashing a sleeping board, test builds): the dev
 
 ## Where the data comes from
 
-Only public, read-only files of the BirdNET Kids website: `data.json`, `news.json` and the audio clips.
-[`docs/data-contract.md`](docs/data-contract.md) lists exactly what is used. The device sends no personal
-data: it only makes HTTPS requests to GitHub.
+Public, read-only files of the BirdNET Kids website (`data.json`, `news.json`, the audio clips) from GitHub, and
+once an hour today's weather forecast from [Open-Meteo](https://open-meteo.com) (free, no key; weather data by
+Open-Meteo.com, CC BY 4.0). [`docs/data-contract.md`](docs/data-contract.md) lists exactly what is used. The
+device sends no personal data: only HTTPS requests, and to Open-Meteo the station's location rounded to about
+5 km.
 
 ## Licence
 
