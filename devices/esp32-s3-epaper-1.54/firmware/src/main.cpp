@@ -422,7 +422,7 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
 }
 
 // Today's forecast from Open-Meteo for the station (Dorot, coordinates rounded to 0.05 degrees, about 5 km):
-// hourly temperature, rain chance, weather code and day/night for the local day, about 2.5 KB. Free, no key.
+// hourly temperature, rain chance, weather code and day/night for the local day, about 1.1 KB. Free, no key.
 static const char* kWeatherUrl =
     "https://api.open-meteo.com/v1/forecast?latitude=31.50&longitude=34.65"
     "&hourly=temperature_2m,precipitation_probability,weather_code,is_day&timezone=Asia%2FJerusalem&forecast_days=1";

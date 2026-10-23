@@ -46,8 +46,8 @@ model (Apache-2.0), python-bidi (LGPL). They are installed with `pip` and not di
 ## Weather data
 
 The forecast on the Today screen comes from [Open-Meteo](https://open-meteo.com): data under CC BY 4.0, so
-credit "Weather data by Open-Meteo.com". Their free service is meant for non-commercial use; read their
-terms if you use it otherwise.
+credit "Weather data by Open-Meteo.com". Their free service (no key, under 10,000 calls a day) is for
+**non-commercial use only**; a commercial use needs their paid plan.
 
 ## Data and sounds
 

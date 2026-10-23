@@ -27,7 +27,7 @@ wakes it at any time. Nothing runs on the Pi for the display.
 | Moment | What it does | Typical cost |
 |---|---|---|
 | Every 20-minute wake | **no Wi-Fi**: next bird from memory, clock, sensor, battery, redraw | about 3 s awake |
-| Once an hour, about 10 minutes past | connect, ask GitHub whether `data.json` changed (ETag), download and parse it if it did (it usually has, the site exports hourly), then ask Open-Meteo for today's forecast (about 2.5 KB), disconnect | about 9-11 s |
+| Once an hour, about 10 minutes past | connect, ask GitHub whether `data.json` changed (ETag), download and parse it if it did (it usually has, the site exports hourly), then ask Open-Meteo for today's forecast (about 1.1 KB), disconnect | about 9-11 s |
 | Once a day | piggybacks on that connection to set the clock (NTP, Israel time zone) | +1 s |
 | PWR held 1.5 s | the same fetch, on demand | |
 | BOOT held 1.5 s (sound) | connects, streams the bird's MP3 from GitHub Pages, plays it; Wi-Fi stays on a short while so the next press is quick | about 12 s to the first sound |
