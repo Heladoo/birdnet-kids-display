@@ -84,6 +84,17 @@ inline int nextIndex(const Bird* oldTop, int oldN, const Bird* newTop, int newN,
   return advance ? (oldIdx + 1) % newN : oldIdx;
 }
 
+// Is it time to go to the site for new birds? Once per slot (an hour), once the slot is `offsetS`
+// old (the site exports at the start of the hour). The hour is counted in UTC, which lines up with
+// local hours for whole-hour time zones such as Israel's. Without a clock there is no way to tell, so
+// then every `wakesPerSlot`-th wake goes.
+inline bool fetchDue(bool clockOk, long now, long lastFetch, int wakesSinceFetch, long slotS, long offsetS,
+                     int wakesPerSlot) {
+  if (!clockOk) return wakesSinceFetch + 1 >= wakesPerSlot;
+  if (lastFetch <= 0) return true;  // never fetched
+  return now / slotS > lastFetch / slotS && now % slotS >= offsetS;
+}
+
 // The site marks species it is unsure about with the badge "Low confidence" (icon ?); its
 // "Confident" filter hides them, and so does the display.
 inline bool isLowConfidenceBadge(const char* badgeEn) { return strcmp(badgeEn, "Low confidence") == 0; }

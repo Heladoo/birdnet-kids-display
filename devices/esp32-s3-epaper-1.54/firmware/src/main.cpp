@@ -47,9 +47,27 @@ static bool usbHostPresent();  // defined further down
 
 static const char* kDataUrl = "https://raw.githubusercontent.com/Heladoo/Birdnet_kids/main/data.json";
 static const char* kTz = "IST-2IDT,M3.4.4/26,M10.5.0";  // Asia/Jerusalem
-constexpr uint32_t kRefreshMs = 5UL * 60 * 1000;   // wake: clock, sensor, battery, data
-constexpr uint32_t kRotateMs = 20UL * 60 * 1000;   // the bird on screen A changes this often
-constexpr uint8_t kRotateWakes = kRotateMs / kRefreshMs;
+// Timing. The device wakes every REFRESH_MS to redraw (clock, sensor, battery) and rotate the bird;
+// those wakes use NO Wi-Fi. It connects only once per FETCH_SLOT_S (an hour), FETCH_OFFSET_S into the
+// slot (about 10 minutes past the hour: the site exports at :00 and GitHub's cache holds 5 minutes),
+// to ask the site for new birds; plus on demand (PWR held, BOOT held for sound, power-on).
+// The macros can be overridden in platformio.ini (env bird_fast runs the same logic in minutes).
+#ifndef REFRESH_MS
+#define REFRESH_MS (20UL * 60 * 1000)
+#endif
+#ifndef ROTATE_MS
+#define ROTATE_MS (20UL * 60 * 1000)
+#endif
+#ifndef FETCH_SLOT_S
+#define FETCH_SLOT_S 3600L
+#endif
+#ifndef FETCH_OFFSET_S
+#define FETCH_OFFSET_S 600L
+#endif
+constexpr uint32_t kRefreshMs = REFRESH_MS;
+constexpr uint32_t kRotateMs = ROTATE_MS;  // the bird on screen A changes this often
+constexpr uint8_t kRotateWakes = kRotateMs / kRefreshMs > 0 ? kRotateMs / kRefreshMs : 1;
+constexpr int kFetchWakesPerSlot = FETCH_SLOT_S * 1000L / REFRESH_MS > 0 ? FETCH_SLOT_S * 1000L / REFRESH_MS : 1;
 constexpr float kSoundVolumeDb = -15;  // codec digital volume for bird clips (stage 0: -18 clear, -6 loud)
 constexpr uint32_t kNtpEverySec = 24UL * 3600;
 constexpr uint32_t kGraceMs = 4000;      // stay awake after a button wake, for the next press
@@ -74,6 +92,9 @@ struct RtcState {
   uint8_t wifiChan;     // channel and access point of the last connection: skips the scan (0 = none)
   uint8_t wifiBssid[6];
   uint32_t lastNtp;
+  uint32_t lastFetch;      // when the site was last asked successfully (seconds; 0 = never)
+  uint8_t wakesSinceFetch;  // only used while the clock is unknown
+  uint8_t skipWakes;        // wakes to wait before trying again after a failed fetch
   char etag[72];
   logic::Bird top[logic::kTop];
 };
@@ -390,9 +411,16 @@ static Fetch fetchTop(logic::Bird* out, int& n) {
 static void nextBird() { st.idx = st.n ? (st.idx + 1) % st.n : 0; }
 
 // Fetch and rotate. `advance` = step A to the next bird (timer wakes only).
-static void refreshData(bool advance) {
+// `fetch` = go to the site for new birds (Wi-Fi). Without it the stored list is reused, so most wakes
+// need no radio at all.
+static void refreshData(bool advance, bool fetch = true) {
+  if (!fetch) {
+    st.idx = logic::nextIndex(st.top, st.n, st.top, st.n, st.idx, advance);
+    return;
+  }
   bool wifi = wifiUp();
   LOG("wifi: %s\n", wifi ? "connected" : "FAILED");
+  bool ok = false;
   if (wifi) {
     if (!env.clockOk || st.lastNtp == 0 || (uint32_t)time(nullptr) - st.lastNtp > kNtpEverySec) {
       if (syncNtp()) env.clockOk = true;
@@ -404,12 +432,40 @@ static void refreshData(bool advance) {
       st.idx = logic::nextIndex(st.top, st.n, fresh, n, st.idx, advance);
       memcpy(st.top, fresh, sizeof st.top);
       st.n = n;
+      ok = true;
     } else if (r == Fetch::Same) {
       st.idx = logic::nextIndex(st.top, st.n, st.top, st.n, st.idx, advance);
+      ok = true;
     }
     wifiDown();
   }
-  // No Wi-Fi: draw the last list again (the "ago" line still moves with the clock).
+  if (ok) {
+    st.lastFetch = env.clockOk ? (uint32_t)time(nullptr) : 0;
+    st.wakesSinceFetch = 0;
+    st.skipWakes = 0;
+  } else {
+    // No Wi-Fi or no answer: show the stored list again (the "heard x min ago" line still moves with
+    // the clock) and do not try again for 2 wakes, so a missing network does not drain the battery.
+    st.idx = logic::nextIndex(st.top, st.n, st.top, st.n, st.idx, advance);
+    st.skipWakes = 2;
+  }
+}
+
+// On a timer wake (and in the USB-awake loop): is it time to go to the site? Once an hour, see
+// logic::fetchDue; right away when there is nothing to show yet; backing off after a failure.
+static bool fetchWanted() {
+  if (st.skipWakes) {
+    st.skipWakes--;
+    LOG("fetch: backing off after a failure (%d wakes left)\n", st.skipWakes);
+    return false;
+  }
+  if (st.n == 0) return true;
+  bool due = logic::fetchDue(env.clockOk, (long)time(nullptr), (long)st.lastFetch, st.wakesSinceFetch, FETCH_SLOT_S,
+                             FETCH_OFFSET_S, kFetchWakesPerSlot);
+  if (!due) st.wakesSinceFetch++;  // matters only while the clock is unknown
+  LOG("fetch: %s (now %ld, last %ld)\n", due ? "due, going to the site" : "not due, no Wi-Fi", (long)time(nullptr),
+      (long)st.lastFetch);
+  return due;
 }
 
 // ------------------------------------------------------------------ drawing
@@ -614,7 +670,7 @@ static void stayAwakeOnUsb() {
       readBattery();
       bool rotate = millis() - lastChange >= kRotateMs;
       if (rotate) lastChange = millis();
-      refreshData(rotate);
+      refreshData(rotate, fetchWanted());
       lastData = millis();
       render();
     }
@@ -766,7 +822,7 @@ void setup() {
   } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
     bool rotate = ++st.sinceChange >= kRotateWakes;
     if (rotate) st.sinceChange = 0;
-    refreshData(rotate);
+    refreshData(rotate, fetchWanted());
   } else {
     refreshData(false);  // power-on, reset, or PWR
   }

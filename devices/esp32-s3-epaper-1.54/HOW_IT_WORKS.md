@@ -17,23 +17,28 @@ below is about the current firmware (`firmware/src/main.cpp`). `PLAN.md` has the
         e-paper: shows screen A (the bird) or D (the list); keeps the image with no power
 ```
 
-The device **sleeps almost all the time**. It wakes every 5 minutes, refreshes what it knows, redraws,
-and sleeps again. A button press also wakes it. Nothing runs on the Pi for the display.
+The device **sleeps almost all the time**. It wakes every 20 minutes, changes the bird, updates the clock,
+temperature and battery, redraws, and sleeps again, **without using Wi-Fi**. Once an hour (about 10 minutes
+past the hour, after the site's hourly export) it also connects and asks for new birds. A button press
+wakes it at any time. Nothing runs on the Pi for the display.
 
 ## When does it connect to Wi-Fi?
 
 | Moment | What it does | Typical cost |
 |---|---|---|
-| Every 5-minute wake | connect, ask GitHub "has `data.json` changed?" (ETag), disconnect | about 5-7 s awake |
-| The data did change (about hourly) | also downloads and parses `data.json` (249 KB) and rebuilds the newest 10 | +3 s |
-| Once a day | piggybacks on a connection to set the clock (NTP, Israel time zone) | +1 s |
-| PWR held 1.5 s | same as a wake, on demand | |
+| Every 20-minute wake | **no Wi-Fi**: next bird from memory, clock, sensor, battery, redraw | about 3 s awake |
+| Once an hour, about 10 minutes past | connect, ask GitHub whether `data.json` changed (ETag), download and parse it if it did (it usually has, the site exports hourly), disconnect | about 8-10 s |
+| Once a day | piggybacks on that connection to set the clock (NTP, Israel time zone) | +1 s |
+| PWR held 1.5 s | the same fetch, on demand | |
 | BOOT held 1.5 s (sound) | connects, streams the bird's MP3 from GitHub Pages, plays it; Wi-Fi stays on a short while so the next press is quick | about 12 s to the first sound |
-| Power-on / reset | one full refresh | |
+| Power-on / reset | one full fetch | |
 | Short button presses | **no Wi-Fi**: they only switch the screen or step to the next stored bird | about 2 s (e-paper redraw) |
 
+So a new bird appears on the display at most about an hour and ten minutes after it is heard (the
+site's export is hourly; asking more often could not show it sooner).
+
 With a PC on the USB port the device does not sleep (so USB stays connected); it follows the same
-5-minute cycle and turns Wi-Fi off between fetches.
+20-minute rhythm and the same once-an-hour fetch, and turns Wi-Fi off between them.
 
 Wi-Fi uses the name and password in `firmware/include/secrets.h` (git-ignored), compiled in. It
 remembers the channel and access point of the last connection, which skips the scan.
@@ -55,9 +60,10 @@ the pack is rebuilt and uploaded.
 
 ## What is polled again and again
 
-- Every 5 minutes: `data.json` with `If-None-Match`. GitHub answers 304 with no body when nothing
-  changed (tested: 0 bytes in 0.2 s, against 249 KB for a full download), so most wakes are cheap.
-  Also: the temperature/humidity sensor, the battery voltage, the clock chip.
+- Once an hour: `data.json` with `If-None-Match`. When nothing changed GitHub answers 304 with no body
+  (seen on the device itself and with `curl`: 0 bytes in 0.2 s, against 249 KB for a full download).
+- Every 20 minutes, with no radio: the temperature/humidity sensor (retried once if a read fails), the
+  battery voltage, the clock chip.
 - Buttons are **not polled** while asleep: pressing one wakes the chip (hardware wake-up).
 - Only with a PC on USB (no sleep): buttons every 20 ms, "is the PC still there" every 2 s.
 
@@ -69,27 +75,27 @@ the pack is rebuilt and uploaded.
   appear until Wi-Fi is back.
 - **Sound does not work** (it streams from the internet).
 - If the clock was never set (first power-up with no Wi-Fi) the time shows `--:--`.
-- Cost to know about: each wake waits up to 12 s for Wi-Fi before giving up, every 5 minutes, which
-  costs battery. A back-off (try less often after failures) is on the backlog.
+- After a failed attempt (no Wi-Fi, or no answer) it waits 2 wakes (about 40 minutes) before trying
+  again, so a missing network does not drain the battery. Each failed attempt waits up to 12 s for Wi-Fi.
 - On a different network the device needs the new Wi-Fi name and password: today that means editing
   `secrets.h` and flashing over USB. A setup mode is on the backlog.
 
 ## Battery life (estimates, not measurements)
 
 The battery size is not known, so the numbers are per 1000 mAh, from typical ESP32-S3 currents. The
-real figures depend on the board's sleep current, which has not been measured yet.
+real figures depend on the board's sleep current (assumed 0.2 mA), which has not been measured yet.
 
 | Use | Estimated drain | Per 1000 mAh |
 |---|---|---|
-| **Idle**: only the automatic 5-minute cycle and a bird change every 20 min | about 40 mAh/day (each wake with Wi-Fi about 0.13 mAh, 288 per day, plus about 0.2 mA while asleep) | **about 3 weeks** (range 2 to 4) |
-| **Active**: the above plus 30 button presses and 20 sounds a day | about 55 mAh/day (a sound is about 0.4 mAh, a press about 0.07 mAh) | **about 2.5 weeks** |
-| Heavy kid use: 100 sounds a day | about 85 mAh/day | about 12 days |
+| **Idle**: only the automatic cycle (72 wakes of about 0.03 mAh without Wi-Fi, 24 hourly fetches of about 0.2 mAh, plus sleeping) | about 12 mAh/day | **about 11 weeks** (range 7 to 14) |
+| **Active**: the above plus 30 button presses and 20 sounds a day (a sound is about 0.4 mAh, a press about 0.07 mAh) | about 22 mAh/day | **about 6 weeks** |
+| Heavy kid use: 100 sounds a day | about 52 mAh/day | about 19 days |
 
-Where it goes: the 5-minute Wi-Fi wakes are about 85 % of the idle drain. Cheap wins: ask GitHub
-hourly instead of every 5 minutes (the data only changes hourly) and redraw without Wi-Fi in between,
-which would be about 2.5 times longer on the same battery; hold the panel supply off in sleep;
-back off when Wi-Fi is missing. The way to get a real number: let it run on battery with the voltage
-logged each wake, and read it over USB.
+(Before the schedule change, with a Wi-Fi fetch on every 5-minute wake, idle was about 40 mAh/day:
+about 3 weeks.) Where the idle drain goes now: sleeping about 40 %, the hourly fetches about 40 %, the
+redraws about 20 %. So the next lever is the board's own sleep current (for example the panel's supply is
+held on while asleep), and the only way to know it is a real measurement: run it on battery with the
+voltage logged each wake and read the log over USB.
 
 ## An SD card, what it would give
 
